@@ -1,0 +1,52 @@
+project_id = "pyswjfcqirszxelrsotw"
+
+[functions.create-signed-upload-url]
+verify_jwt = false
+
+[functions.create-signed-view-url]
+verify_jwt = false
+
+[functions.create-signed-download-url]
+verify_jwt = false
+
+[functions.start-render-job]
+verify_jwt = false
+
+[functions.generate-style-bible]
+verify_jwt = false
+
+[functions.compose-final-prompt]
+verify_jwt = false
+
+[functions.delete-upload]
+verify_jwt = false
+
+[functions.get-change-suggestions]
+verify_jwt = false
+
+[functions.help-chatbot]
+verify_jwt = false
+
+[functions.start-batch-job]
+verify_jwt = false
+
+[functions.run-pipeline-step]
+verify_jwt = false
+
+[functions.attach-pipeline-output]
+verify_jwt = false
+
+[functions.get-pipeline-suggestions]
+verify_jwt = false
+
+[functions.optimize-pipeline-prompt]
+verify_jwt = false
+
+[functions.reset-floorplan-pipeline]
+verify_jwt = false
+
+[functions.compose-pipeline-prompt]
+verify_jwt = false
+
+[functions.run-multi-image-panorama]
+verify_jwt = false
