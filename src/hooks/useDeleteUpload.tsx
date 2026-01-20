@@ -23,11 +23,74 @@ export function useDeleteUpload(projectId: string) {
   
   // Actually perform the deletion
   const performDeletion = async (uploadId: string, forceDbOnly: boolean) => {
-    const { data, error } = await supabase.functions.invoke("delete-upload", {
-      body: { upload_id: uploadId, force_db_only: forceDbOnly },
-    });
-    if (error) throw error;
-    return data;
+    console.log(`[useDeleteUpload] Attempting to delete ${uploadId} (forceDbOnly: ${forceDbOnly})`);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke("delete-upload", {
+        body: { upload_id: uploadId, force_db_only: forceDbOnly },
+      });
+
+      if (error) {
+        console.warn("[useDeleteUpload] Edge Function failed, attempting client-side fallback:", error);
+        throw error; // Trigger fallback in catch block
+      }
+      
+      console.log("[useDeleteUpload] Edge Function success:", data);
+      return data;
+    } catch (functionError) {
+      console.log("[useDeleteUpload] Falling back to client-side deletion logic...");
+      
+      // 1. Fetch upload to get details
+      const { data: upload, error: fetchError } = await supabase
+        .from("uploads")
+        .select("*")
+        .eq("id", uploadId)
+        .single();
+        
+      if (fetchError || !upload) {
+        throw new Error(`Could not fetch upload details for deletion: ${fetchError?.message}`);
+      }
+      
+      // 2. Handle dependencies (basic cleanup for outputs)
+      if (upload.kind === "output") {
+        // Nullify references in render_jobs
+        await supabase
+          .from("render_jobs")
+          .update({ output_upload_id: null })
+          .eq("output_upload_id", uploadId);
+          
+        // Note: For 'panorama' or 'design_ref', we might hit FK constraints if we don't clean up.
+        // But preventing complex logic duplication, we'll try to delete and let DB enforce constraints if any.
+      }
+      
+      // 3. Delete from Storage (if not force_db_only)
+      if (!forceDbOnly && upload.bucket && upload.path) {
+        const { error: storageError } = await supabase.storage
+          .from(upload.bucket)
+          .remove([upload.path]);
+          
+        if (storageError) {
+          console.warn("[useDeleteUpload] Storage delete warning:", storageError);
+          // Continue to DB delete even if storage fails (might be already gone)
+        }
+      }
+      
+      // 4. Delete from Database
+      const { error: dbError } = await supabase
+        .from("uploads")
+        .delete()
+        .eq("id", uploadId);
+        
+      if (dbError) {
+        // Check for specific FK violation errors to give better feedback
+        if (dbError.code === "23503") { // foreign_key_violation
+          throw new Error("Cannot delete: This item is still being used by other jobs or pipelines.");
+        }
+        throw dbError;
+      }
+      
+      return { success: true, method: "client-side" };
+    }
   };
   
   // Cancel a pending deletion (undo)
