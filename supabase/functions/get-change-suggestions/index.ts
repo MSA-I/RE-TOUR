@@ -32,9 +32,59 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { category, search, generate_more, surprise_me } = await req.json();
+    const { category, search, generate_more, surprise_me, context } = await req.json();
 
-    console.log(`Getting suggestions: category=${category}, search=${search}, generate_more=${generate_more}, surprise_me=${surprise_me}`);
+    console.log(`Getting suggestions: category=${category}, search=${search}, generate_more=${generate_more}, surprise_me=${surprise_me}, context=${context}`);
+
+    // Handle "multi_image_panorama" context - return strict relevant suggestions
+    if (context === "multi_image_panorama") {
+      const panoramaSuggestions = [
+        {
+          category: "panorama",
+          title: "Seamless Merge",
+          prompt: "Merge the reference images into one seamless equirectangular 360 panorama. Resolve overlaps perfectly.",
+          is_generated: false
+        },
+        {
+          category: "panorama",
+          title: "Evidence-Based Creation",
+          prompt: "Create a new panorama using only the attached images as spatial evidence. Do not hallucinate hidden areas.",
+          is_generated: false
+        },
+        {
+          category: "panorama",
+          title: "Layout Continuity",
+          prompt: "Preserve room layout continuity; align walls, ceilings, and floors accurately across all images.",
+          is_generated: false
+        },
+        {
+          category: "panorama",
+          title: "Atmosphere Matching",
+          prompt: "Blend lighting and color temperature for a consistent look across the entire stitched panorama.",
+          is_generated: false
+        },
+        {
+          category: "panorama",
+          title: "Neutral Gaps",
+          prompt: "If an area is not visible in references, keep it neutral or undefined. Do not invent objects or openings.",
+          is_generated: false
+        },
+        {
+          category: "panorama",
+          title: "Material Consistency",
+          prompt: "Match materials and finishes consistently across all references to ensure a unified surface appearance.",
+          is_generated: false
+        }
+      ];
+
+      return new Response(
+        JSON.stringify({
+          suggestions: panoramaSuggestions,
+          categories: ["panorama"],
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Handle "Surprise me" - return random suggestion
     if (surprise_me) {
