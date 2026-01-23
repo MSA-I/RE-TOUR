@@ -64,7 +64,7 @@ const JobCard = memo(function JobCard({
           <div className="flex items-center gap-2">
             <FlaskConical className="h-4 w-4 text-muted-foreground" />
             <CardTitle className="text-base">Multi-Image Panorama</CardTitle>
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline" className="text-xs text-amber-600 bg-amber-500/10 border-amber-500/30">
               Experimental
             </Badge>
           </div>

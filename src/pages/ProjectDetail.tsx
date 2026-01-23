@@ -2243,14 +2243,14 @@ export default function ProjectDetail() {
             />
           </TabsContent>
 
-          {/* Multi-Image Panorama Tab (Experimental) */}
-          <TabsContent value="multi-image-panorama" className="space-y-6">
-            <MultiImagePanoramaTab
-              projectId={id!}
-              creationsAttachments={multiPanoramaAttachments}
-              onClearAttachments={() => setMultiPanoramaAttachments([])}
-            />
-          </TabsContent>
+             {/* Multi-Image Panorama Tab */}
+             <TabsContent value="multi-image-panorama" className="space-y-6">
+               <MultiImagePanoramaTab
+                 projectId={id!}
+                 creationsAttachments={multiPanoramaAttachments}
+                 onClearAttachments={() => setMultiPanoramaAttachments([])}
+               />
+             </TabsContent>
         </Tabs>
 
       {/* Preview Dialog */}
