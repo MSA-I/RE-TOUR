@@ -246,7 +246,7 @@ export const ImageEditingTab = memo(function ImageEditingTab({
       
       setChangeDescription("");
       setComposedPrompt(null);
-      onClearAttachment?.();
+      // onClearAttachment?.(); // Keep attachment for further editing
     } catch (error) {
       toast({
         title: "Failed to create edit job",

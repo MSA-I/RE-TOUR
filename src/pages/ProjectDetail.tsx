@@ -605,6 +605,8 @@ export default function ProjectDetail() {
       setActiveTab("floor-plan-uploads");
     } else if (tabParam === "floor-plan-jobs") {
       setActiveTab("floor-plan-jobs");
+    } else if (tabParam && VALID_TABS.includes(tabParam)) {
+      setActiveTab(tabParam);
     }
     
     // Select job from URL param
