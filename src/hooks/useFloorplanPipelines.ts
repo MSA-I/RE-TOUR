@@ -542,7 +542,47 @@ export function useFloorplanPipelines(projectId: string) {
       if (!user) throw new Error("Not authenticated");
 
       console.log(`[Pipeline Delete] Starting deletion of pipeline: ${pipelineId}`);
-      console.log(`[Pipeline Delete] IMPORTANT: Creations assets will be PRESERVED`);
+      
+      // Get the pipeline first to find associated uploads
+      const { data: pipeline } = await supabase
+        .from("floorplan_pipelines")
+        .select("step_outputs")
+        .eq("id", pipelineId)
+        .single();
+
+      if (pipeline?.step_outputs) {
+        const outputsToDelete: string[] = [];
+        const stepOutputs = pipeline.step_outputs as Record<string, any>;
+        
+        Object.values(stepOutputs).forEach(stepData => {
+          if (stepData?.output_upload_id) {
+            outputsToDelete.push(stepData.output_upload_id);
+          }
+          if (stepData?.batch_outputs && Array.isArray(stepData.batch_outputs)) {
+            stepData.batch_outputs.forEach((batch: any) => {
+              if (batch.output_upload_id) {
+                outputsToDelete.push(batch.output_upload_id);
+              }
+            });
+          }
+        });
+
+        if (outputsToDelete.length > 0) {
+          console.log(`[Pipeline Delete] Deleting ${outputsToDelete.length} associated creation assets`);
+          for (const uploadId of outputsToDelete) {
+            const { data: upload } = await supabase
+              .from("uploads")
+              .select("bucket, path")
+              .eq("id", uploadId)
+              .single();
+
+            if (upload) {
+              await supabase.storage.from(upload.bucket).remove([upload.path]);
+              await supabase.from("uploads").delete().eq("id", uploadId);
+            }
+          }
+        }
+      }
 
       // Delete pipeline events first
       const { error: eventsError } = await supabase

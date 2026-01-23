@@ -8,7 +8,7 @@ export interface MultiImagePanoramaJob {
   id: string;
   owner_id: string;
   project_id: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "failed" | "needs_review" | "approved" | "rejected";
   input_upload_ids: string[];
   output_upload_id: string | null;
   camera_position: string | null;
