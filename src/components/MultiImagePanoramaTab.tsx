@@ -1,10 +1,11 @@
-import { useState, useCallback, memo } from "react";
+import { useState, useCallback, memo, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -14,6 +15,7 @@ import { useStorage } from "@/hooks/useStorage";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { LazyImage } from "@/components/LazyImage";
+import { AspectRatioPreview, AspectRatioSelectItemContent } from "@/components/AspectRatioPreview";
 import { format } from "date-fns";
 import { 
   Loader2, Play, Trash2, Image, ImagePlus, Check, X, 
@@ -202,6 +204,8 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [cameraPosition, setCameraPosition] = useState("center of the main living space at eye-level");
   const [forwardDirection, setForwardDirection] = useState("toward the primary focal point");
+  const [selectedResolution, setSelectedResolution] = useState("2K");
+  const [selectedRatio, setSelectedRatio] = useState("2:1");
 
   // View large modal
   const [viewLargeOpen, setViewLargeOpen] = useState(false);
@@ -230,8 +234,9 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
   }, [getSignedViewUrl, imagePreviews]);
 
   // Initialize selected from attachments
-  useState(() => {
+  useEffect(() => {
     if (creationsAttachments.length > 0) {
+      console.log("[MultiPano] Initializing from attachments:", creationsAttachments.length);
       const ids = new Set(creationsAttachments.map((a) => a.uploadId));
       setSelectedImages(ids);
       creationsAttachments.forEach((a) => {
@@ -242,7 +247,20 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
         }
       });
     }
-  });
+  }, [creationsAttachments, loadPreview]);
+
+  // Load output and input previews for jobs
+  useEffect(() => {
+    jobs.forEach((job) => {
+      if (job.status === "completed" && job.output_upload_id && !imagePreviews[job.output_upload_id]) {
+        loadPreview(job.output_upload_id);
+      }
+      // Load input previews
+      (job.input_upload_ids || []).forEach((id) => {
+        if (!imagePreviews[id]) loadPreview(id);
+      });
+    });
+  }, [jobs, imagePreviews, loadPreview]);
 
   // Toggle image selection
   const toggleImage = (uploadId: string) => {
@@ -274,6 +292,8 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
         inputUploadIds: Array.from(selectedImages),
         cameraPosition: cameraPosition.trim() || undefined,
         forwardDirection: forwardDirection.trim() || undefined,
+        outputResolution: selectedResolution,
+        aspectRatio: selectedRatio,
       });
 
       toast({ title: "Job created", description: "Click Generate to start panorama creation." });
@@ -295,6 +315,9 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
     setStartingJobId(jobId);
     try {
       await startJob.mutateAsync(jobId);
+      toast({ title: "Panorama generation started" });
+    } catch (error) {
+      // Error already handled by toast in hook, but we can add more if needed
     } finally {
       setStartingJobId(null);
     }
@@ -302,6 +325,8 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
 
   // Delete job
   const handleDeleteJob = async (jobId: string) => {
+    if (!confirm("Are you sure you want to delete this job?")) return;
+    
     setDeletingJobId(jobId);
     try {
       await deleteJob.mutateAsync(jobId);
@@ -338,17 +363,6 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
     if (!job.output_upload_id) return undefined;
     return imagePreviews[job.output_upload_id];
   };
-
-  // Load output previews for completed jobs
-  jobs.forEach((job) => {
-    if (job.status === "completed" && job.output_upload_id && !imagePreviews[job.output_upload_id]) {
-      loadPreview(job.output_upload_id);
-    }
-    // Load input previews
-    (job.input_upload_ids || []).forEach((id) => {
-      if (!imagePreviews[id]) loadPreview(id);
-    });
-  });
 
   return (
     <div className="space-y-6">
@@ -464,6 +478,51 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
                   placeholder="e.g., toward the main window"
                   className="text-sm"
                 />
+              </div>
+            </div>
+          )}
+
+          {/* Sizing and Resolution */}
+          {selectedImages.size >= 2 && (
+            <div className="grid gap-4 sm:grid-cols-2 p-4 bg-background/50 rounded-lg border border-border/50">
+              <div className="space-y-2">
+                <Label htmlFor="multi-ratio" className="text-xs">Output Ratio</Label>
+                <Select value={selectedRatio} onValueChange={setSelectedRatio}>
+                  <SelectTrigger id="multi-ratio" className="bg-background">
+                    <div className="flex items-center gap-2">
+                      <AspectRatioPreview ratio={selectedRatio} size="sm" selected />
+                      <span>{selectedRatio}</span>
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="bg-background border-border">
+                    <SelectItem value="2:1"><AspectRatioSelectItemContent value="2:1" /></SelectItem>
+                    <SelectItem value="1:1"><AspectRatioSelectItemContent value="1:1" /></SelectItem>
+                    <SelectItem value="16:9"><AspectRatioSelectItemContent value="16:9" /></SelectItem>
+                    <SelectItem value="21:9"><AspectRatioSelectItemContent value="21:9" /></SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="multi-resolution" className="text-xs">Select Quality</Label>
+                <Select value={selectedResolution} onValueChange={setSelectedResolution}>
+                  <SelectTrigger id="multi-resolution" className="bg-background">
+                    <SelectValue placeholder="Select quality" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border-border">
+                    <SelectItem value="1K" className="py-3">
+                      <span className="font-medium">1K</span>
+                      <span className="text-muted-foreground ml-2">· Fast</span>
+                    </SelectItem>
+                    <SelectItem value="2K" className="py-3">
+                      <span className="font-medium">2K</span>
+                      <span className="text-muted-foreground ml-2">· Balanced</span>
+                    </SelectItem>
+                    <SelectItem value="4K" className="py-3">
+                      <span className="font-medium">4K</span>
+                      <span className="text-muted-foreground ml-2">· Ultra</span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}

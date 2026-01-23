@@ -17,7 +17,7 @@ import { ToastAction } from "@/components/ui/toast";
 import { VirtualizedImageGrid } from "@/components/VirtualizedImageGrid";
 import { LazyImage } from "@/components/LazyImage";
 import { 
-  Loader2, Image, MoreHorizontal, Layers, Wand2, Eye, X, Paperclip, ImagePlus, ArrowRight, Check, CheckSquare, Trash2, Box, Maximize2, Download
+  Loader2, Image, MoreHorizontal, Layers, Wand2, Eye, X, Paperclip, ImagePlus, ArrowRight, Check, CheckSquare, Trash2, Box, Maximize2, Download, FlaskConical
 } from "lucide-react";
 import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
@@ -75,6 +75,7 @@ const CreationCard = memo(function CreationCard({
   onEdit,
   onViewLarge,
   onUsePanorama,
+  onUseMultiPanorama,
   onDownload,
   onDelete
 }: {
@@ -88,6 +89,7 @@ const CreationCard = memo(function CreationCard({
   onEdit: () => void;
   onViewLarge: () => void;
   onUsePanorama: () => void;
+  onUseMultiPanorama: () => void;
   onDownload: () => void;
   onDelete: () => void;
 }) {
@@ -193,6 +195,10 @@ const CreationCard = memo(function CreationCard({
                 <ImagePlus className="h-4 w-4 mr-2" />
                 Use as Panorama Input
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={onUseMultiPanorama}>
+                <FlaskConical className="h-4 w-4 mr-2" />
+                Use for Multi-Pano
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={onEdit}>
                 <Wand2 className="h-4 w-4 mr-2" />
@@ -237,7 +243,8 @@ export const CreationsTab = memo(function CreationsTab({
   onCreatePipeline,
   onAttachMultiToPanorama,
   onAttachMultiToEdit,
-  onAttachMultiToVirtualTour
+  onAttachMultiToVirtualTour,
+  onAttachMultiToMultiPanorama
 }: CreationsTabProps) {
   const { user } = useAuth();
   const { getSignedViewUrl, getSignedDownloadUrl } = useStorage();
@@ -614,6 +621,21 @@ export const CreationsTab = memo(function CreationsTab({
     setSelectedIds(new Set());
   }, [selectedIds, onAttachMultiToVirtualTour]);
 
+  // Handle batch attach to Multi-Image Panorama
+  const handleAttachToMultiPanorama = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    
+    const ids = Array.from(selectedIds);
+    console.log(`[Creations] Attaching ${ids.length} images to Multi-Image Panorama`);
+    
+    if (onAttachMultiToMultiPanorama) {
+      onAttachMultiToMultiPanorama(ids);
+    }
+    
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  }, [selectedIds, onAttachMultiToMultiPanorama]);
+
   // Handle delete request (single)
   const handleDeleteRequest = useCallback((creation: Creation) => {
     setCreationToDelete(creation);
@@ -704,6 +726,13 @@ export const CreationsTab = memo(function CreationsTab({
     setAttachModalOpen(true);
   }, [imagePreviews]);
 
+  // Handle "Use for Multi-Pano" - direct attach
+  const handleUseMultiPanoramaClick = useCallback((creation: Creation) => {
+    if (onAttachMultiToMultiPanorama) {
+      onAttachMultiToMultiPanorama([creation.id]);
+    }
+  }, [onAttachMultiToMultiPanorama]);
+
   // Handle "Edit / Modify" - opens modal
   const handleEditClick = useCallback((creation: Creation) => {
     setAttachModalCreation(creation);
@@ -783,11 +812,12 @@ export const CreationsTab = memo(function CreationsTab({
           }
         }}
         onUsePanorama={() => handleUsePanoramaClick(creation)}
+        onUseMultiPanorama={() => handleUseMultiPanoramaClick(creation)}
         onDownload={() => handleDownload(creation)}
         onDelete={() => handleDeleteRequest(creation)}
       />
     );
-  }, [attachments, imagePreviews, selectedIds, isSelectionMode, handleToggleSelect, handleStartPipelineFromStep, handleEditClick, handleUsePanoramaClick, handleDownload, handleDeleteRequest]);
+  }, [attachments, imagePreviews, selectedIds, isSelectionMode, handleToggleSelect, handleStartPipelineFromStep, handleEditClick, handleUsePanoramaClick, handleUseMultiPanoramaClick, handleDownload, handleDeleteRequest]);
 
   return (
     <div className="space-y-6">
@@ -825,6 +855,15 @@ export const CreationsTab = memo(function CreationsTab({
             >
               <Box className="h-4 w-4 mr-2" />
               Attach to Virtual Tour
+            </Button>
+            <Button 
+              size="sm" 
+              variant="outline"
+              onClick={handleAttachToMultiPanorama}
+              disabled={selectedIds.size === 0 || !onAttachMultiToMultiPanorama}
+            >
+              <FlaskConical className="h-4 w-4 mr-2" />
+              Attach to Multi-Pano
             </Button>
             <Button 
               size="sm" 
