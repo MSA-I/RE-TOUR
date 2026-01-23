@@ -8,7 +8,7 @@ export interface MultiImagePanoramaJob {
   id: string;
   owner_id: string;
   project_id: string;
-  status: "pending" | "running" | "completed" | "failed" | "needs_review" | "approved" | "rejected";
+  status: "pending" | "running" | "qa_running" | "approved" | "needs_review" | "failed" | "completed";
   input_upload_ids: string[];
   output_upload_id: string | null;
   camera_position: string | null;
@@ -18,11 +18,27 @@ export interface MultiImagePanoramaJob {
   progress_int: number | null;
   progress_message: string | null;
   last_error: string | null;
-  qa_reason: string | null;
+  qa_summary: string | null;
+  qa_issues: Array<{ type: string; severity: string; description: string }>;
   retry_count: number | null;
   prompt_used: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface MultiImagePanoramaAttempt {
+  id: string;
+  job_id: string;
+  owner_id: string;
+  attempt_number: number;
+  nano_request_payload: unknown;
+  prompt_used: string | null;
+  output_upload_id: string | null;
+  qa_pass: boolean;
+  qa_issues: Array<{ type: string; severity: string; description: string }>;
+  qa_summary: string | null;
+  corrective_instruction: string | null;
+  created_at: string;
 }
 
 export interface MultiImagePanoramaEvent {
@@ -161,6 +177,28 @@ export function useMultiImagePanoramaJobs(projectId: string) {
     deleteJob,
     updateJob,
   };
+}
+
+export function useMultiImagePanoramaAttempts(jobId: string | null) {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ["multi-image-panorama-attempts", jobId],
+    queryFn: async () => {
+      if (!jobId) return [];
+      // Supabase generated types may lag behind migrations; keep this loosely typed.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabaseAny = supabase as any;
+      const { data, error } = await supabaseAny
+        .from("multi_image_panorama_attempts")
+        .select("*")
+        .eq("job_id", jobId)
+        .order("attempt_number", { ascending: true });
+      if (error) throw error;
+      return (data || []) as unknown as MultiImagePanoramaAttempt[];
+    },
+    enabled: !!user && !!jobId,
+  });
 }
 
 // Hook for real-time events

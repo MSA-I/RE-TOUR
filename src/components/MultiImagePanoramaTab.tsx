@@ -11,7 +11,12 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { useMultiImagePanoramaJobs, useMultiImagePanoramaEvents, MultiImagePanoramaJob } from "@/hooks/useMultiImagePanoramaJobs";
+import {
+  useMultiImagePanoramaJobs,
+  useMultiImagePanoramaEvents,
+  useMultiImagePanoramaAttempts,
+  MultiImagePanoramaJob,
+} from "@/hooks/useMultiImagePanoramaJobs";
 import { useStorage } from "@/hooks/useStorage";
 import { useUploads } from "@/hooks/useUploads";
 import { usePromptComposer } from "@/hooks/usePromptComposer";
@@ -22,10 +27,10 @@ import { AspectRatioPreview, AspectRatioSelectItemContent, ASPECT_RATIOS } from 
 import { ChangeSuggestionsPanel } from "@/components/ChangeSuggestionsPanel";
 import { RenderJobTerminal } from "@/components/RenderJobTerminal";
 import { format } from "date-fns";
-import { 
+import {
   Loader2, Play, Trash2, Image, ImagePlus, Check, X, 
   AlertTriangle, Layers, Eye, Maximize2, FlaskConical, Terminal, Sparkles, Wand2,
-  Columns, ThumbsUp, ThumbsDown, Copy, RotateCcw
+  Columns, ThumbsUp, Copy
 } from "lucide-react";
 import { BeforeAfterSlider } from "@/components/BeforeAfterSlider";
 
@@ -38,10 +43,10 @@ interface MultiImagePanoramaTabProps {
 const statusColors: Record<string, string> = {
   pending: "bg-muted text-muted-foreground",
   running: "bg-blue-500/20 text-blue-400",
+  qa_running: "bg-amber-500/20 text-amber-400",
   needs_review: "bg-amber-500/20 text-amber-400",
   approved: "bg-green-500/20 text-green-400",
-  rejected: "bg-destructive/20 text-destructive",
-  completed: "bg-amber-500/20 text-amber-400", // Backend finished, waiting for review
+  completed: "bg-amber-500/20 text-amber-400", // legacy
   failed: "bg-destructive/20 text-destructive",
 };
 
@@ -73,7 +78,11 @@ const JobCard = memo(function JobCard({
   onOpenTerminal: (id: string) => void;
   terminalIsOpen: boolean;
 }) {
-  const events = useMultiImagePanoramaEvents(job.status === "running" ? job.id : null);
+  const events = useMultiImagePanoramaEvents(
+    job.status === "running" || job.status === "qa_running" ? job.id : null
+  );
+  const { data: attempts = [] } = useMultiImagePanoramaAttempts(job.id);
+  const latestAttempt = attempts.length > 0 ? attempts[attempts.length - 1] : null;
   const latestEvent = events[events.length - 1];
   const inputCount = (job.input_upload_ids || []).length;
   
@@ -89,13 +98,8 @@ const JobCard = memo(function JobCard({
             <CardTitle className="text-base">Multi-Image Panorama</CardTitle>
           </div>
           <div className="flex items-center gap-2">
-            {job.status === "completed" && (
-              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
-                Needs Review
-              </Badge>
-            )}
             <Badge className={statusColors[job.status] || statusColors.pending}>
-              {job.status === "completed" ? "needs_review" : job.status}
+              {job.status}
             </Badge>
           </div>
         </div>
@@ -117,17 +121,17 @@ const JobCard = memo(function JobCard({
 
       <CardContent className="space-y-4">
         {/* Progress / Events */}
-        {(job.status === "running" || terminalIsOpen) && (
+        {((job.status === "running" || job.status === "qa_running") || terminalIsOpen) && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2">
-                {job.status === "running" ? (
+                {job.status === "running" || job.status === "qa_running" ? (
                   <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
                 ) : (
                   <Terminal className="h-3 w-3 text-muted-foreground" />
                 )}
                 <span className="text-muted-foreground truncate max-w-[200px]">
-                  {job.status === "running" ? (latestEvent?.message || "Processing...") : "Process Log"}
+                  {(job.status === "running" || job.status === "qa_running") ? (latestEvent?.message || "Processing...") : "Process Log"}
                 </span>
               </div>
               <Button
@@ -140,20 +144,68 @@ const JobCard = memo(function JobCard({
                 {terminalIsOpen ? "Hide Log" : "View Log"}
               </Button>
             </div>
-            {job.status === "running" && <Progress value={job.progress_int || 0} className="h-2" />}
+            {(job.status === "running" || job.status === "qa_running") && (
+              <Progress value={job.progress_int || 0} className="h-2" />
+            )}
           </div>
         )}
 
-        {/* QA Reason display */}
-        {job.qa_reason && job.status !== "approved" && (
-          <div className="p-2.5 rounded-md bg-amber-500/5 border border-amber-500/20 space-y-1 animate-in fade-in slide-in-from-top-1">
-            <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider flex items-center gap-1.5">
-              <AlertTriangle className="h-3 w-3" />
-              QA Assessment Result
-            </p>
-            <p className="text-[11px] text-muted-foreground leading-relaxed italic">
-              "{job.qa_reason}"
-            </p>
+        {/* AI QA status */}
+        {(job.status === "qa_running" || job.qa_summary || (job.qa_issues && job.qa_issues.length > 0)) && (
+          <div className="p-2.5 rounded-md bg-amber-500/5 border border-amber-500/20 space-y-2 animate-in fade-in slide-in-from-top-1">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider flex items-center gap-1.5">
+                <AlertTriangle className="h-3 w-3" />
+                AI QA
+              </p>
+              {job.status === "qa_running" && (
+                <Badge variant="outline" className="h-4 text-[9px] px-1 border-amber-500/40 text-amber-600">
+                  Running…
+                </Badge>
+              )}
+            </div>
+
+            {job.qa_summary && (
+              <p className="text-[11px] text-muted-foreground leading-relaxed italic">"{job.qa_summary}"</p>
+            )}
+
+            {job.qa_issues && job.qa_issues.length > 0 && (
+              <div className="space-y-1">
+                {job.qa_issues.slice(0, 6).map((issue, idx) => (
+                  <p key={idx} className="text-[11px] text-muted-foreground">
+                    <span className="font-medium">{issue.type}</span>
+                    <span className="text-muted-foreground/70"> ({issue.severity})</span>: {issue.description}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {latestAttempt?.corrective_instruction && !latestAttempt.qa_pass && (
+              <div className="pt-1 border-t border-amber-500/10">
+                <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                  Corrective Instruction
+                </p>
+                <p className="text-[11px] text-muted-foreground italic">"{latestAttempt.corrective_instruction}"</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Attempts summary */}
+        {attempts.length > 0 && (
+          <div className="rounded-md border bg-muted/20 p-2.5 space-y-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Attempts</p>
+            {attempts.map((a) => (
+              <div key={a.id} className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground">Attempt {a.attempt_number}</span>
+                <Badge
+                  variant="outline"
+                  className={a.qa_pass ? "border-green-500/30 text-green-600" : "border-destructive/30 text-destructive"}
+                >
+                  {a.qa_pass ? "PASS" : "FAIL"}
+                </Badge>
+              </div>
+            ))}
           </div>
         )}
 
@@ -204,65 +256,25 @@ const JobCard = memo(function JobCard({
               </>
             )}
 
-            {/* QA Controls - Visible for 'completed' (needs review) status */}
-            {job.status === "completed" && (
-              <div className="flex flex-col gap-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+            {/* Optional human override only if AI QA failed */}
+            {job.status === "needs_review" && (
+              <div className="flex flex-col gap-3 p-3 rounded-lg bg-destructive/5 border border-destructive/20">
                 <div className="space-y-0.5">
-                  <p className="text-xs font-medium text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                  <p className="text-xs font-medium text-destructive flex items-center gap-2">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    QA Review Required
+                    AI QA Failed
                   </p>
-                  <p className="text-[10px] text-muted-foreground">Verify consistency before adding to Jobs</p>
+                  <p className="text-[10px] text-muted-foreground">Optional override: approve anyway</p>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-9 text-green-600 border-green-600/20 hover:bg-green-600/10"
-                    onClick={() => onUpdateStatus("approved")}
-                    disabled={isUpdating}
-                  >
-                    <ThumbsUp className="h-3.5 w-3.5 mr-1.5" />
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-9 text-destructive border-destructive/20 hover:bg-destructive/10"
-                    onClick={() => onUpdateStatus("rejected")}
-                    disabled={isUpdating}
-                  >
-                    <ThumbsDown className="h-3.5 w-3.5 mr-1.5" />
-                    Reject
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Re-review or Status info for approved/rejected */}
-            {(job.status === "approved" || job.status === "rejected") && (
-              <div className={`flex items-center justify-between p-2.5 rounded border ${
-                job.status === "approved" ? "bg-green-500/5 border-green-500/20" : "bg-destructive/5 border-destructive/20"
-              }`}>
-                <div className="flex items-center gap-2">
-                  {job.status === "approved" ? (
-                    <Check className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <X className="h-4 w-4 text-destructive" />
-                  )}
-                  <span className={`text-xs font-medium ${job.status === "approved" ? "text-green-600" : "text-destructive"}`}>
-                    {job.status === "approved" ? "QA Approved" : "QA Rejected"}
-                  </span>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-7 text-[10px] text-muted-foreground"
-                  onClick={() => onUpdateStatus("completed")} // Reset to review state
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9 text-green-600 border-green-600/20 hover:bg-green-600/10"
+                  onClick={() => onUpdateStatus("approved")}
                   disabled={isUpdating}
                 >
-                  <RotateCcw className="h-3 w-3 mr-1" />
-                  Change
+                  <ThumbsUp className="h-3.5 w-3.5 mr-1.5" />
+                  Approve (Override)
                 </Button>
               </div>
             )}
@@ -609,6 +621,8 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
       await startJob.mutateAsync(jobId);
       toast({ title: "Panorama generation started" });
     } catch (error) {
+      // Hook already shows a toast; keep a console log for debugging.
+      console.error("Failed to start panorama job", error);
     } finally {
       setStartingJobId(null);
     }
@@ -630,8 +644,7 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
     setUpdatingJobId(jobId);
     try {
       await updateJob.mutateAsync({ jobId, status });
-      const statusLabel = status === "approved" ? "QA Approved" : status === "rejected" ? "QA Rejected" : "Review Reset";
-      toast({ title: statusLabel });
+      toast({ title: status === "approved" ? "QA Approved" : "Status updated" });
     } finally {
       setUpdatingJobId(null);
     }
