@@ -18,11 +18,11 @@ export function useChangeSuggestions() {
   const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
 
-  const fetchSuggestions = useCallback(async (category?: string, search?: string) => {
+  const fetchSuggestions = useCallback(async (category?: string, search?: string, context?: string) => {
     setIsLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("get-change-suggestions", {
-        body: { category, search },
+        body: { category, search, context },
       });
 
       if (error) throw error;
@@ -41,11 +41,11 @@ export function useChangeSuggestions() {
     }
   }, [toast]);
 
-  const generateMore = useCallback(async (category?: string) => {
+  const generateMore = useCallback(async (category?: string, context?: string) => {
     setIsGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke("get-change-suggestions", {
-        body: { category, generate_more: true },
+        body: { category, generate_more: true, context },
       });
 
       if (error) throw error;
@@ -68,10 +68,10 @@ export function useChangeSuggestions() {
     }
   }, [toast]);
 
-  const getSurprise = useCallback(async (): Promise<ChangeSuggestion | null> => {
+  const getSurprise = useCallback(async (context?: string): Promise<ChangeSuggestion | null> => {
     try {
       const { data, error } = await supabase.functions.invoke("get-change-suggestions", {
-        body: { surprise_me: true },
+        body: { surprise_me: true, context },
       });
 
       if (error) throw error;

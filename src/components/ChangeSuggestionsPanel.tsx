@@ -41,6 +41,8 @@ interface ChangeSuggestionsPanelProps {
   referenceImages?: ReferenceImage[];
   /** Callback when style transfer is applied with selected references */
   onApplyStyleTransfer?: (selectedRefIds: string[], prompt: string) => void;
+  /** Context for suggestions (e.g., "render", "multi_image_panorama") */
+  context?: string;
 }
 
 const STYLE_TRANSFER_PROMPT = `Apply the overall style (materials, color palette, lighting mood, furniture language) from the selected reference(s) to the panorama while keeping the layout, perspective, camera angle, and all architectural elements unchanged. Preserve the room geometry exactly as it is.`;
@@ -54,7 +56,8 @@ function ChangeSuggestionsPanelComponent({
   isComposing = false,
   onComposePrompt,
   referenceImages = [],
-  onApplyStyleTransfer
+  onApplyStyleTransfer,
+  context
 }: ChangeSuggestionsPanelProps) {
   const {
     suggestions,
@@ -88,8 +91,8 @@ function ChangeSuggestionsPanelComponent({
   useEffect(() => {
     if (initialFetchDone.current) return;
     initialFetchDone.current = true;
-    fetchSuggestions();
-  }, [fetchSuggestions]);
+    fetchSuggestions(undefined, undefined, context);
+  }, [fetchSuggestions, context]);
 
   // Handle category/search changes with debounce
   useEffect(() => {
@@ -97,13 +100,13 @@ function ChangeSuggestionsPanelComponent({
     if (!initialFetchDone.current) return;
     
     const debounce = setTimeout(() => {
-      fetchSuggestions(selectedCategory === "all" ? undefined : selectedCategory, searchQuery || undefined);
+      fetchSuggestions(selectedCategory === "all" ? undefined : selectedCategory, searchQuery || undefined, context);
     }, 300);
     return () => clearTimeout(debounce);
-  }, [selectedCategory, searchQuery, fetchSuggestions]);
+  }, [selectedCategory, searchQuery, fetchSuggestions, context]);
 
   const handleSurpriseMe = async () => {
-    const suggestion = await getSurprise();
+    const suggestion = await getSurprise(context);
     if (suggestion) {
       if (enableCompose) {
         // In compose mode, add to selection
@@ -454,7 +457,7 @@ function ChangeSuggestionsPanelComponent({
             variant="ghost"
             size="sm"
             className="w-full"
-            onClick={() => generateMore(selectedCategory === "all" ? undefined : selectedCategory)}
+            onClick={() => generateMore(selectedCategory === "all" ? undefined : selectedCategory, context)}
             disabled={isGenerating}
           >
             {isGenerating ? (
