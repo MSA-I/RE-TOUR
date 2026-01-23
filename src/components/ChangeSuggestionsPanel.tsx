@@ -70,6 +70,10 @@ function ChangeSuggestionsPanelComponent({
   } = useChangeSuggestions();
 
   const [mode, setMode] = useState<"edits" | "style_transfer">("edits");
+  
+  // Force "edits" mode and hide tabs if context is multi_image_panorama
+  const isMultiPano = context === "multi_image_panorama";
+  
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   
@@ -219,21 +223,23 @@ function ChangeSuggestionsPanelComponent({
 
   return (
     <div className="space-y-4">
-      {/* Mode Toggle */}
-      <Tabs value={mode} onValueChange={(v) => setMode(v as "edits" | "style_transfer")}>
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="edits" className="gap-2">
-            <Wand2 className="h-4 w-4" />
-            Design Edits
-          </TabsTrigger>
-          <TabsTrigger value="style_transfer" className="gap-2">
-            <Palette className="h-4 w-4" />
-            Style Transfer
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {/* Mode Toggle - Hidden for Multi-Pano */}
+      {!isMultiPano && (
+        <Tabs value={mode} onValueChange={(v) => setMode(v as "edits" | "style_transfer")}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="edits" className="gap-2">
+              <Wand2 className="h-4 w-4" />
+              Design Edits
+            </TabsTrigger>
+            <TabsTrigger value="style_transfer" className="gap-2">
+              <Palette className="h-4 w-4" />
+              Style Transfer
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
 
-      {mode === "style_transfer" ? (
+      {mode === "style_transfer" && !isMultiPano ? (
         /* Style Transfer Mode */
         <div className="space-y-4">
           <div className="rounded-lg border bg-muted/30 p-4 space-y-3">

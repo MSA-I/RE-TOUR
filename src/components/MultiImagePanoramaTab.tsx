@@ -88,6 +88,7 @@ const JobCard = memo(function JobCard({
   
   const [compareOpen, setCompareOpen] = useState(false);
   const [primaryInputId] = useState(() => job.input_upload_ids?.[0]);
+  const { toast } = useToast();
 
   return (
     <Card className="overflow-hidden">
@@ -103,7 +104,15 @@ const JobCard = memo(function JobCard({
             </Badge>
           </div>
         </div>
-        <CardDescription className="text-xs">
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal bg-muted border border-border">
+            {job.aspect_ratio || "2:1"}
+          </Badge>
+          <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal bg-muted border border-border">
+            {job.output_resolution || "2K"}
+          </Badge>
+        </div>
+        <CardDescription className="text-xs mt-2">
           {format(new Date(job.created_at), "MMM d, yyyy HH:mm")} • {inputCount} source images
           {job.retry_count && job.retry_count > 0 && (
             <Badge variant="outline" className="ml-2 h-4 text-[9px] px-1 border-amber-500/50 text-amber-600">
@@ -111,9 +120,29 @@ const JobCard = memo(function JobCard({
             </Badge>
           )}
           {job.prompt_used && (
-            <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground italic truncate">
-              <Sparkles className="h-2.5 w-2.5 flex-shrink-0" />
-              {job.prompt_used}
+            <div className="mt-2 pt-2 border-t border-border/50">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  Request
+                </span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-4 w-4 text-muted-foreground hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(job.prompt_used || "");
+                    toast({ title: "Prompt copied" });
+                  }}
+                  title="Copy full prompt"
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground line-clamp-2 hover:line-clamp-none transition-all cursor-help bg-muted/30 p-1.5 rounded border border-border/30">
+                {job.prompt_used}
+              </p>
             </div>
           )}
         </CardDescription>
