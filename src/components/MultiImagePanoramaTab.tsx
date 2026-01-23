@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { useMultiImagePanoramaJobs, useMultiImagePanoramaEvents, MultiImagePanoramaJob } from "@/hooks/useMultiImagePanoramaJobs";
 import { useStorage } from "@/hooks/useStorage";
 import { usePromptComposer } from "@/hooks/usePromptComposer";
@@ -22,8 +23,10 @@ import { RenderJobTerminal } from "@/components/RenderJobTerminal";
 import { format } from "date-fns";
 import { 
   Loader2, Play, Trash2, Image, ImagePlus, Check, X, 
-  AlertTriangle, Layers, Eye, Maximize2, FlaskConical, Terminal, Sparkles, Wand2
+  AlertTriangle, Layers, Eye, Maximize2, FlaskConical, Terminal, Sparkles, Wand2,
+  Columns, ThumbsUp, ThumbsDown, Copy
 } from "lucide-react";
+import { BeforeAfterSlider } from "@/components/BeforeAfterSlider";
 
 interface MultiImagePanoramaTabProps {
   projectId: string;
@@ -44,8 +47,10 @@ const JobCard = memo(function JobCard({
   onStart,
   onDelete,
   onViewOutput,
+  onUpdateStatus,
   isStarting,
   isDeleting,
+  isUpdating,
   inputPreviews,
   outputPreview,
   onOpenTerminal,
@@ -55,8 +60,10 @@ const JobCard = memo(function JobCard({
   onStart: () => void;
   onDelete: () => void;
   onViewOutput: () => void;
+  onUpdateStatus: (status: string) => void;
   isStarting: boolean;
   isDeleting: boolean;
+  isUpdating: boolean;
   inputPreviews: Record<string, string>;
   outputPreview?: string;
   onOpenTerminal: (id: string) => void;
@@ -65,6 +72,9 @@ const JobCard = memo(function JobCard({
   const events = useMultiImagePanoramaEvents(job.status === "running" ? job.id : null);
   const latestEvent = events[events.length - 1];
   const inputCount = (job.input_upload_ids || []).length;
+  
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [primaryInputId] = useState(() => job.input_upload_ids?.[0]);
 
   return (
     <Card className="overflow-hidden">
@@ -74,9 +84,16 @@ const JobCard = memo(function JobCard({
             <FlaskConical className="h-4 w-4 text-muted-foreground" />
             <CardTitle className="text-base">Multi-Image Panorama</CardTitle>
           </div>
-          <Badge className={statusColors[job.status] || statusColors.pending}>
-            {job.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {job.status === "completed" && (
+              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
+                Needs Review
+              </Badge>
+            )}
+            <Badge className={statusColors[job.status] || statusColors.pending}>
+              {job.status}
+            </Badge>
+          </div>
         </div>
         <CardDescription className="text-xs">
           {format(new Date(job.created_at), "MMM d, yyyy HH:mm")} • {inputCount} source images
@@ -89,7 +106,10 @@ const JobCard = memo(function JobCard({
           <Label className="text-xs text-muted-foreground mb-2 block">Source Images (Evidence)</Label>
           <div className="flex gap-2 overflow-x-auto pb-2">
             {(job.input_upload_ids || []).slice(0, 5).map((uploadId, idx) => (
-              <div key={uploadId} className="relative w-16 h-16 rounded border bg-muted flex-shrink-0 overflow-hidden">
+              <div 
+                key={uploadId} 
+                className={`relative w-16 h-16 rounded border flex-shrink-0 overflow-hidden ${primaryInputId === uploadId ? 'ring-2 ring-primary' : 'bg-muted'}`}
+              >
                 {inputPreviews[uploadId] ? (
                   <img
                     src={inputPreviews[uploadId]}
@@ -99,6 +119,11 @@ const JobCard = memo(function JobCard({
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
                     <Image className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                )}
+                {primaryInputId === uploadId && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-primary/80 text-[8px] text-white text-center py-0.5 font-bold">
+                    PRIMARY
                   </div>
                 )}
               </div>
@@ -137,8 +162,21 @@ const JobCard = memo(function JobCard({
 
         {/* Output preview */}
         {job.status === "completed" && outputPreview && (
-          <div>
-            <Label className="text-xs text-muted-foreground mb-2 block">Output (Evidence-Based)</Label>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground block">Output (Evidence-Based)</Label>
+              <div className="flex gap-2">
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="h-7 text-[10px]"
+                  onClick={() => setCompareOpen(true)}
+                >
+                  <Columns className="h-3 w-3 mr-1" />
+                  Compare
+                </Button>
+              </div>
+            </div>
             <div 
               className="relative aspect-[2/1] rounded border overflow-hidden cursor-pointer group"
               onClick={onViewOutput}
@@ -155,8 +193,64 @@ const JobCard = memo(function JobCard({
                 Evidence-Based
               </Badge>
             </div>
+
+            {/* QA Controls */}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50">
+              <div className="space-y-0.5">
+                <p className="text-xs font-medium">QA Assessment</p>
+                <p className="text-[10px] text-muted-foreground">Verify source image consistency</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-green-600 border-green-600/20 hover:bg-green-600/10"
+                  onClick={() => onUpdateStatus("completed")}
+                  disabled={isUpdating}
+                >
+                  <ThumbsUp className="h-3.5 w-3.5 mr-1.5" />
+                  Approve
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-destructive border-destructive/20 hover:bg-destructive/10"
+                  onClick={() => onUpdateStatus("failed")}
+                  disabled={isUpdating}
+                >
+                  <ThumbsDown className="h-3.5 w-3.5 mr-1.5" />
+                  Reject
+                </Button>
+              </div>
+            </div>
           </div>
         )}
+
+        {/* Comparison Dialog */}
+        <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
+          <DialogContent className="max-w-5xl max-h-[90vh]">
+            <DialogHeader>
+              <DialogTitle>Compare Before/After</DialogTitle>
+              <DialogDescription>
+                Compare primary source image against the generated panorama.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              {primaryInputId && inputPreviews[primaryInputId] && outputPreview ? (
+                <BeforeAfterSlider 
+                  beforeImage={inputPreviews[primaryInputId]} 
+                  afterImage={outputPreview}
+                  beforeLabel="Primary Source"
+                  afterLabel="Generated Panorama"
+                />
+              ) : (
+                <div className="flex items-center justify-center h-64 bg-muted rounded">
+                  <p className="text-sm text-muted-foreground">Comparison not available</p>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Error display */}
         {job.status === "failed" && job.last_error && (
@@ -224,7 +318,7 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
   creationsAttachments = [],
   onClearAttachments,
 }: MultiImagePanoramaTabProps) {
-  const { jobs, isLoading, createJob, startJob, deleteJob } = useMultiImagePanoramaJobs(projectId);
+  const { jobs, isLoading, createJob, startJob, deleteJob, updateJob } = useMultiImagePanoramaJobs(projectId);
   const { getSignedViewUrl } = useStorage();
   const { composePrompt, isComposing: isPromptComposing } = usePromptComposer();
   const { toast } = useToast();
@@ -235,6 +329,7 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
   const [isCreating, setIsCreating] = useState(false);
   const [startingJobId, setStartingJobId] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+  const [updatingJobId, setUpdatingJobId] = useState<string | null>(null);
   const [terminalJobId, setTerminalJobId] = useState<string | null>(null);
   const [cameraPosition, setCameraPosition] = useState("center of the main living space at eye-level");
   const [forwardDirection, setForwardDirection] = useState("toward the primary focal point");
@@ -335,6 +430,13 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
     }
   };
 
+  const handleCopyPrompt = () => {
+    if (composedPrompt) {
+      navigator.clipboard.writeText(composedPrompt);
+      toast({ title: "Prompt copied to clipboard" });
+    }
+  };
+
   // Create new job
   const handleCreateJob = async () => {
     if (selectedImages.size < 2) {
@@ -359,8 +461,13 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
         aspectRatio: selectedRatio,
       });
 
-      // Update the job with the final prompt if needed (though createJob might need update to accept it)
-      // For now, let's assume the backend handles it or we'll add prompt_used support if available
+      // Update the job with the final prompt if needed
+      if (composedPrompt) {
+        await supabase
+          .from("multi_image_panorama_jobs")
+          .update({ prompt_used: composedPrompt })
+          .eq("id", newJob.id);
+      }
       
       toast({ title: "Job created", description: "Click Generate to start panorama creation." });
       setSelectedImages(new Set());
@@ -385,7 +492,7 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
       await startJob.mutateAsync(jobId);
       toast({ title: "Panorama generation started" });
     } catch (error) {
-      // Error already handled by toast in hook, but we can add more if needed
+      // Error already handled by toast in hook
     } finally {
       setStartingJobId(null);
     }
@@ -400,6 +507,17 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
       await deleteJob.mutateAsync(jobId);
     } finally {
       setDeletingJobId(null);
+    }
+  };
+
+  // Update status (QA)
+  const handleUpdateStatus = async (jobId: string, status: string) => {
+    setUpdatingJobId(jobId);
+    try {
+      await updateJob.mutateAsync({ jobId, status });
+      toast({ title: status === "completed" ? "QA Approved" : "QA Rejected" });
+    } finally {
+      setUpdatingJobId(null);
     }
   };
 
@@ -493,6 +611,48 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
               className="bg-background"
             />
           </div>
+
+          {/* Composed Prompt Result */}
+          {composedPrompt && (
+            <div className="space-y-2 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold text-primary flex items-center gap-1.5">
+                  <Wand2 className="h-3 w-3" />
+                  Final Composed Prompt
+                </Label>
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="h-6 px-2 text-[10px]"
+                    onClick={handleCopyPrompt}
+                  >
+                    <Copy className="h-3 w-3 mr-1" />
+                    Copy
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                    onClick={() => setComposedPrompt(null)}
+                  >
+                    <X className="h-3 w-3 mr-1" />
+                    Clear
+                  </Button>
+                </div>
+              </div>
+              <div className="relative">
+                <Textarea
+                  value={composedPrompt}
+                  onChange={(e) => setComposedPrompt(e.target.value)}
+                  className="text-xs font-mono bg-primary/5 border-primary/20 min-h-[80px]"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground italic">
+                This prompt will be sent to the AI engine. You can tweak it above before creating the job.
+              </p>
+            </div>
+          )}
 
           {/* Selected images */}
           {creationsAttachments.length > 0 && (
@@ -661,8 +821,10 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
                 onStart={() => handleStartJob(job.id)}
                 onDelete={() => handleDeleteJob(job.id)}
                 onViewOutput={() => handleViewOutput(job)}
+                onUpdateStatus={(status) => handleUpdateStatus(job.id, status)}
                 isStarting={startingJobId === job.id}
                 isDeleting={deletingJobId === job.id}
+                isUpdating={updatingJobId === job.id}
                 inputPreviews={imagePreviews}
                 outputPreview={getOutputPreview(job)}
                 onOpenTerminal={(id) => setTerminalJobId(terminalJobId === id ? null : id)}

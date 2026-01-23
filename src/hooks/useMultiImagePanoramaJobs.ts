@@ -133,12 +133,31 @@ export function useMultiImagePanoramaJobs(projectId: string) {
     },
   });
 
+  // Update a job (for QA status)
+  const updateJob = useMutation({
+    mutationFn: async ({ jobId, status, lastError }: { jobId: string, status: string, lastError?: string }) => {
+      const { data, error } = await supabase
+        .from("multi_image_panorama_jobs")
+        .update({ status, last_error: lastError || null })
+        .eq("id", jobId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as MultiImagePanoramaJob;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["multi-image-panorama-jobs", projectId] });
+    },
+  });
+
   return {
     jobs,
     isLoading,
     createJob,
     startJob,
     deleteJob,
+    updateJob,
   };
 }
 
