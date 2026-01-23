@@ -17,7 +17,7 @@ import { ToastAction } from "@/components/ui/toast";
 import { VirtualizedImageGrid } from "@/components/VirtualizedImageGrid";
 import { LazyImage } from "@/components/LazyImage";
 import { 
-  Loader2, Image, MoreHorizontal, Layers, Wand2, Eye, X, Paperclip, ImagePlus, ArrowRight, Check, CheckSquare, Trash2, Box, Maximize2
+  Loader2, Image, MoreHorizontal, Layers, Wand2, Eye, X, Paperclip, ImagePlus, ArrowRight, Check, CheckSquare, Trash2, Box, Maximize2, Download
 } from "lucide-react";
 import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
@@ -75,6 +75,7 @@ const CreationCard = memo(function CreationCard({
   onEdit,
   onViewLarge,
   onUsePanorama,
+  onDownload,
   onDelete
 }: {
   creation: Creation;
@@ -87,6 +88,7 @@ const CreationCard = memo(function CreationCard({
   onEdit: () => void;
   onViewLarge: () => void;
   onUsePanorama: () => void;
+  onDownload: () => void;
   onDelete: () => void;
 }) {
   const getSourceLabel = (): string => {
@@ -200,6 +202,10 @@ const CreationCard = memo(function CreationCard({
                 <Maximize2 className="h-4 w-4 mr-2" />
                 View Large
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDownload}>
+                <Download className="h-4 w-4 mr-2" />
+                Download
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
                 <Trash2 className="h-4 w-4 mr-2" />
@@ -234,7 +240,7 @@ export const CreationsTab = memo(function CreationsTab({
   onAttachMultiToVirtualTour
 }: CreationsTabProps) {
   const { user } = useAuth();
-  const { getSignedViewUrl } = useStorage();
+  const { getSignedViewUrl, getSignedDownloadUrl } = useStorage();
   const { toast } = useToast();
   const navigate = useNavigate();
   const deleteUploadMutation = useDeleteUpload(projectId);
@@ -724,6 +730,36 @@ export const CreationsTab = memo(function CreationsTab({
     setAttachModalCreation(null);
   }, [attachModalCreation, attachModalDestination, onUsePanorama, onEditImage]);
 
+  // Handle download
+  const handleDownload = useCallback(async (creation: Creation) => {
+    try {
+      const { signedUrl } = await getSignedDownloadUrl(
+        creation.bucket, 
+        creation.path, 
+        creation.original_filename || `creation-${creation.id}.png`
+      );
+      
+      if (signedUrl) {
+        // Create temporary anchor to trigger download
+        const link = document.createElement('a');
+        link.href = signedUrl;
+        link.download = creation.original_filename || `creation-${creation.id}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        toast({ title: "Download started" });
+      }
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast({ 
+        title: "Download failed", 
+        description: "Could not generate download link", 
+        variant: "destructive" 
+      });
+    }
+  }, [getSignedDownloadUrl, toast]);
+
   const renderCreation = useCallback((creation: Creation) => {
     const isAttached = attachments.some(a => a.uploadId === creation.id);
     const previewUrl = imagePreviews[creation.id];
@@ -747,10 +783,11 @@ export const CreationsTab = memo(function CreationsTab({
           }
         }}
         onUsePanorama={() => handleUsePanoramaClick(creation)}
+        onDownload={() => handleDownload(creation)}
         onDelete={() => handleDeleteRequest(creation)}
       />
     );
-  }, [attachments, imagePreviews, selectedIds, isSelectionMode, handleToggleSelect, handleStartPipelineFromStep, handleEditClick, handleUsePanoramaClick, handleDeleteRequest]);
+  }, [attachments, imagePreviews, selectedIds, isSelectionMode, handleToggleSelect, handleStartPipelineFromStep, handleEditClick, handleUsePanoramaClick, handleDownload, handleDeleteRequest]);
 
   return (
     <div className="space-y-6">
