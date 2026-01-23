@@ -608,7 +608,7 @@ export function useFloorplanPipelines(projectId: string) {
         console.log(`[Pipeline Delete] Deleted pipeline reviews`);
       }
 
-      // Delete the pipeline itself (output uploads are PRESERVED for Creations)
+      // Delete the pipeline itself (output uploads are also removed)
       const { error } = await supabase
         .from("floorplan_pipelines")
         .delete()
@@ -617,7 +617,7 @@ export function useFloorplanPipelines(projectId: string) {
 
       if (error) throw error;
 
-      console.log(`[Pipeline Delete] Pipeline ${pipelineId} deleted - Creations assets preserved`);
+      console.log(`[Pipeline Delete] Pipeline ${pipelineId} and associated assets deleted`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", projectId] });

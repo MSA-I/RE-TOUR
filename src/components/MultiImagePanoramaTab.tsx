@@ -18,7 +18,7 @@ import { usePromptComposer } from "@/hooks/usePromptComposer";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { LazyImage } from "@/components/LazyImage";
-import { AspectRatioPreview, AspectRatioSelectItemContent } from "@/components/AspectRatioPreview";
+import { AspectRatioPreview, AspectRatioSelectItemContent, ASPECT_RATIOS } from "@/components/AspectRatioPreview";
 import { ChangeSuggestionsPanel } from "@/components/ChangeSuggestionsPanel";
 import { RenderJobTerminal } from "@/components/RenderJobTerminal";
 import { format } from "date-fns";
@@ -101,6 +101,11 @@ const JobCard = memo(function JobCard({
         </div>
         <CardDescription className="text-xs">
           {format(new Date(job.created_at), "MMM d, yyyy HH:mm")} • {inputCount} source images
+          {job.retry_count && job.retry_count > 0 && (
+            <Badge variant="outline" className="ml-2 h-4 text-[9px] px-1 border-amber-500/50 text-amber-600">
+              {job.retry_count} {job.retry_count === 1 ? 'retry' : 'retries'}
+            </Badge>
+          )}
           {job.prompt_used && (
             <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground italic truncate">
               <Sparkles className="h-2.5 w-2.5 flex-shrink-0" />
@@ -136,6 +141,19 @@ const JobCard = memo(function JobCard({
               </Button>
             </div>
             {job.status === "running" && <Progress value={job.progress_int || 0} className="h-2" />}
+          </div>
+        )}
+
+        {/* QA Reason display */}
+        {job.qa_reason && job.status !== "approved" && (
+          <div className="p-2.5 rounded-md bg-amber-500/5 border border-amber-500/20 space-y-1 animate-in fade-in slide-in-from-top-1">
+            <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider flex items-center gap-1.5">
+              <AlertTriangle className="h-3 w-3" />
+              QA Assessment Result
+            </p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed italic">
+              "{job.qa_reason}"
+            </p>
           </div>
         )}
 
@@ -405,8 +423,6 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [updatingJobId, setUpdatingJobId] = useState<string | null>(null);
   const [terminalJobId, setTerminalJobId] = useState<string | null>(null);
-  const [cameraPosition, setCameraPosition] = useState("center of the main living space at eye-level");
-  const [forwardDirection, setForwardDirection] = useState("toward the primary focal point");
   const [selectedResolution, setSelectedResolution] = useState("2K");
   const [selectedRatio, setSelectedRatio] = useState("2:1");
   const [changeRequest, setChangeRequest] = useState("");
@@ -468,6 +484,15 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
       setSelectedImages(ids);
     }
   }, [creationsAttachments]);
+
+  // Load previews for available uploads
+  useEffect(() => {
+    projectUploads.forEach((u) => {
+      if (!imagePreviews[u.id]) {
+        loadPreview(u.id, u.bucket, u.path);
+      }
+    });
+  }, [projectUploads, loadPreview, imagePreviews]);
 
   // Handle file upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -550,8 +575,6 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
       
       const newJob = await createJob.mutateAsync({
         inputUploadIds: Array.from(selectedImages),
-        cameraPosition: cameraPosition.trim() || undefined,
-        forwardDirection: forwardDirection.trim() || undefined,
         outputResolution: selectedResolution,
         aspectRatio: selectedRatio,
       });
@@ -682,12 +705,15 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
               </label>
 
               {/* Combined selectable images: Attachments + Project Uploads */}
-              {[...creationsAttachments.map(a => ({ id: a.uploadId, name: a.filename })), ...projectUploads.map(u => ({ id: u.id, name: u.original_filename }))]
+              {[
+                ...creationsAttachments.map(a => ({ id: a.uploadId, name: a.filename, isPersisted: false, upload: null })), 
+                ...projectUploads.map(u => ({ id: u.id, name: u.original_filename, isPersisted: true, upload: u }))
+              ]
                 .filter((v, i, a) => a.findIndex(t => t.id === v.id) === i) // Unique by ID
                 .map((img) => (
                   <div
                     key={img.id}
-                    className={`relative aspect-square rounded-lg border overflow-hidden cursor-pointer transition-all ${
+                    className={`relative aspect-square rounded-lg border overflow-hidden cursor-pointer transition-all group/item ${
                       selectedImages.has(img.id) ? "ring-2 ring-primary border-primary shadow-lg scale-[1.02]" : "hover:border-muted-foreground"
                     }`}
                     onClick={() => toggleImage(img.id)}
@@ -699,10 +725,34 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
                         <Image className="h-5 w-5 text-muted-foreground/50" />
                       </div>
                     )}
+                    
+                    {/* Selection Indicator */}
                     {selectedImages.has(img.id) && (
-                      <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary flex items-center justify-center shadow-md">
+                      <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary flex items-center justify-center shadow-md z-10">
                         <Check className="h-3 w-3 text-primary-foreground" />
                       </div>
+                    )}
+
+                    {/* Delete button for fresh uploads */}
+                    {img.isPersisted && img.upload && (
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="absolute bottom-1 right-1 w-6 h-6 rounded-md opacity-0 group-hover/item:opacity-100 transition-opacity z-20"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm("Delete this uploaded image?")) {
+                            deleteUpload.mutate(img.upload!);
+                            setSelectedImages(prev => {
+                              const next = new Set(prev);
+                              next.delete(img.id);
+                              return next;
+                            });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     )}
                   </div>
                 ))}
@@ -758,48 +808,56 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
             </div>
           </div>
 
-          {/* Camera & Settings */}
-          <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t border-border/50">
-            <div className="space-y-2">
-              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">3. Camera Placement</Label>
-              <div className="grid gap-2">
-                <Input
-                  placeholder="Camera Position (e.g. center of room)"
-                  value={cameraPosition}
-                  onChange={(e) => setCameraPosition(e.target.value)}
-                  className="text-xs h-8"
-                />
-                <Input
-                  placeholder="Forward Direction (e.g. toward window)"
-                  value={forwardDirection}
-                  onChange={(e) => setForwardDirection(e.target.value)}
-                  className="text-xs h-8"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">4. Output Settings</Label>
-              <div className="flex gap-2">
-                <Select value={selectedRatio} onValueChange={setSelectedRatio}>
-                  <SelectTrigger className="h-8 text-xs flex-1">
-                    <SelectValue placeholder="Ratio" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="2:1">2:1 Panorama</SelectItem>
-                    <SelectItem value="16:9">16:9 Wide</SelectItem>
-                    <SelectItem value="1:1">1:1 Square</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={selectedResolution} onValueChange={setSelectedResolution}>
-                  <SelectTrigger className="h-8 text-xs flex-1">
-                    <SelectValue placeholder="Quality" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1K">1K Fast</SelectItem>
-                    <SelectItem value="2K">2K Balanced</SelectItem>
-                    <SelectItem value="4K">4K Ultra</SelectItem>
-                  </SelectContent>
-                </Select>
+          {/* Settings */}
+          <div className="pt-2 border-t border-border/50">
+            <div className="space-y-4">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">3. Output Settings</Label>
+              
+              <div className="grid gap-6 sm:grid-cols-2 p-4 bg-muted/20 rounded-lg border border-border/50">
+                <div className="space-y-3">
+                  <Label htmlFor="multi-ratio" className="text-xs font-semibold">Aspect Ratio</Label>
+                  <Select value={selectedRatio} onValueChange={setSelectedRatio}>
+                    <SelectTrigger id="multi-ratio" className="bg-background border-border h-10">
+                      <div className="flex items-center gap-2">
+                        <AspectRatioPreview ratio={selectedRatio} size="sm" selected />
+                        <span>{selectedRatio}</span>
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent className="bg-background border-border max-h-[300px]">
+                      {Object.keys(ASPECT_RATIOS).map((ratio) => (
+                        <SelectItem key={ratio} value={ratio}>
+                          <AspectRatioSelectItemContent value={ratio} />
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground italic">
+                    Note: 2:1 is recommended for VR viewers.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <Label htmlFor="multi-resolution" className="text-xs font-semibold">Select Quality</Label>
+                  <Select value={selectedResolution} onValueChange={setSelectedResolution}>
+                    <SelectTrigger id="multi-resolution" className="bg-background border-border h-10">
+                      <SelectValue placeholder="Select quality" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border">
+                      <SelectItem value="1K" className="py-2.5">
+                        <span className="font-medium">1K</span>
+                        <span className="text-muted-foreground ml-2">· Fast Preview</span>
+                      </SelectItem>
+                      <SelectItem value="2K" className="py-2.5">
+                        <span className="font-medium">2K</span>
+                        <span className="text-muted-foreground ml-2">· Balanced</span>
+                      </SelectItem>
+                      <SelectItem value="4K" className="py-2.5">
+                        <span className="font-medium">4K</span>
+                        <span className="text-muted-foreground ml-2">· Production</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
           </div>
@@ -807,10 +865,10 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
           <Button
             onClick={handleCreateJob}
             disabled={selectedImages.size < 2 || isCreating}
-            className="w-full shadow-md"
+            className="w-full shadow-md py-6 text-base font-semibold"
           >
-            {isCreating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
-            Create Job ({selectedImages.size} images)
+            {isCreating ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Play className="h-5 w-5 mr-2" />}
+            Create Panorama Job ({selectedImages.size} images)
           </Button>
         </CardContent>
       </Card>

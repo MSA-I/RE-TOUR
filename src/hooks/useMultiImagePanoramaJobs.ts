@@ -18,6 +18,8 @@ export interface MultiImagePanoramaJob {
   progress_int: number | null;
   progress_message: string | null;
   last_error: string | null;
+  qa_reason: string | null;
+  retry_count: number | null;
   prompt_used: string | null;
   created_at: string;
   updated_at: string;

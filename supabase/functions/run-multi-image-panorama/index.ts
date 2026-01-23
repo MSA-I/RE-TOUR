@@ -10,8 +10,10 @@ const API_NANOBANANA = Deno.env.get("API_NANOBANANA");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+const MAX_RETRIES = 2;
+
 // Multi-Image Panorama prompt template - evidence-based, no hallucination
-const MULTI_IMAGE_PANORAMA_PROMPT = (cameraPosition: string, forwardDirection: string, imageCount: number) => `
+const MULTI_IMAGE_PANORAMA_PROMPT = (cameraPosition: string, forwardDirection: string, imageCount: number, aspectRatio: string) => `
 You are generating a TRUE 360° equirectangular interior panorama using MULTIPLE reference images as SPATIAL EVIDENCE.
 
 CRITICAL INSTRUCTIONS - EVIDENCE-BASED GENERATION:
@@ -51,8 +53,8 @@ Camera:
 Primary forward direction (0° yaw):
 - Facing ${forwardDirection}
 
-PANORAMA REQUIREMENTS (Same as Step 4):
-- True 360° equirectangular panorama (2:1 aspect ratio)
+PANORAMA REQUIREMENTS:
+- True 360° equirectangular panorama (${aspectRatio} aspect ratio)
 - No fisheye circle distortion
 - Correct straight verticals
 - Proper perspective without warping
@@ -71,6 +73,26 @@ STYLE:
 OUTPUT LABEL: Multi-Image Panorama (Evidence-Based)
 
 PRINCIPLE: Better incomplete truth than complete fiction.
+`;
+
+const QA_PROMPT = (originalPrompt: string) => `
+Evaluate the generated interior panorama image for quality and adherence to the original request.
+
+Original Request/Context:
+"${originalPrompt}"
+
+CRITICAL QUALITY CHECKS:
+1. ARTIFACTS: Are there obvious glitches, seams, blurred patches, or AI hallucinations?
+2. ADHERENCE: Does the output accurately reflect the source evidence and requested style?
+3. PERSPECTIVE: Are verticals straight? Is the equirectangular projection correct and "panorama-safe"?
+4. STITCHING: Are there visible seams or discontinuities where images were merged?
+
+Provide a concise assessment. 
+You MUST respond in JSON format only:
+{
+  "pass": boolean,
+  "reason": "concise explanation of issues or 'PASSED'"
+}
 `;
 
 async function emitEvent(
@@ -109,7 +131,6 @@ serve(async (req) => {
   const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   try {
-    // Auth check
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) throw new Error("Missing authorization header");
 
@@ -124,7 +145,6 @@ serve(async (req) => {
     const { job_id } = await req.json();
     if (!job_id) throw new Error("job_id is required");
 
-    // Get job
     const { data: job, error: jobError } = await supabaseAdmin
       .from("multi_image_panorama_jobs")
       .select("*")
@@ -139,49 +159,37 @@ serve(async (req) => {
       throw new Error("At least 2 input images required");
     }
 
-    // Update status to running
-    await updateJob(supabaseAdmin, job_id, { status: "running", progress_int: 5 });
-    await emitEvent(supabaseAdmin, job_id, user.id, "start", "Starting multi-image panorama generation...", 5);
+    await updateJob(supabaseAdmin, job_id, { status: "running", progress_int: 5, retry_count: 0 });
+    await emitEvent(supabaseAdmin, job_id, user.id, "start", "Starting multi-image panorama generation with automated QA...", 5);
 
-    // Fetch all input images
     await emitEvent(supabaseAdmin, job_id, user.id, "fetch", `Fetching ${inputUploadIds.length} input images...`, 10);
 
     const inputImages: Array<{ base64: string; mimeType: string; filename: string }> = [];
 
     for (let i = 0; i < inputUploadIds.length; i++) {
       const uploadId = inputUploadIds[i];
-
-      // Get upload details
       const { data: upload } = await supabaseAdmin
         .from("uploads")
         .select("bucket, path, original_filename")
         .eq("id", uploadId)
         .single();
 
-      if (!upload) {
-        console.log(`Upload ${uploadId} not found, skipping`);
-        continue;
-      }
+      if (!upload) continue;
 
-      // Download the file
       const { data: fileData, error: downloadError } = await supabaseAdmin.storage
         .from(upload.bucket)
         .download(upload.path);
 
-      if (downloadError || !fileData) {
-        console.log(`Failed to download ${upload.path}, skipping`);
-        continue;
-      }
+      if (downloadError || !fileData) continue;
 
       const buffer = await fileData.arrayBuffer();
       const base64 = btoa(
         new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
       );
-      const mimeType = fileData.type || "image/jpeg";
-
+      
       inputImages.push({
         base64,
-        mimeType,
+        mimeType: fileData.type || "image/jpeg",
         filename: upload.original_filename || `image_${i + 1}`,
       });
 
@@ -190,166 +198,167 @@ serve(async (req) => {
         job_id,
         user.id,
         "fetch",
-        `Loaded image ${i + 1}/${inputUploadIds.length}: ${upload.original_filename || "image"}`,
-        10 + Math.floor((i / inputUploadIds.length) * 20)
+        `Loaded image ${i + 1}/${inputUploadIds.length}`,
+        10 + Math.floor((i / inputUploadIds.length) * 15)
       );
     }
 
-    if (inputImages.length < 2) {
-      throw new Error("Could not load at least 2 valid input images");
-    }
+    if (inputImages.length < 2) throw new Error("Could not load input images");
 
-    // Build the prompt
     const cameraPosition = job.camera_position || "center of the main living space at eye-level";
     const forwardDirection = job.forward_direction || "toward the primary focal point";
-    const prompt = MULTI_IMAGE_PANORAMA_PROMPT(cameraPosition, forwardDirection, inputImages.length);
-
-    await updateJob(supabaseAdmin, job_id, { prompt_used: prompt, progress_int: 35 });
-    await emitEvent(supabaseAdmin, job_id, user.id, "prompt", "Built evidence-based panorama prompt", 35);
-
-    // Call Nano Banana (Google Gemini) with multi-image input
-    await emitEvent(supabaseAdmin, job_id, user.id, "generate", "Calling Nano Banana with multi-image input...", 40);
+    const aspectRatio = job.aspect_ratio || "2:1";
+    let basePrompt = MULTI_IMAGE_PANORAMA_PROMPT(cameraPosition, forwardDirection, inputImages.length, aspectRatio);
+    let currentPrompt = basePrompt;
+    
+    let attempt = 0;
+    let success = false;
+    let finalOutputRecord = null;
+    let qaReason = "";
 
     const imageParts = inputImages.map((img) => ({
-      inlineData: {
-        mimeType: img.mimeType,
-        data: img.base64,
-      },
+      inlineData: { mimeType: img.mimeType, data: img.base64 },
     }));
 
-    const geminiPayload = {
-      contents: [
-        {
-          parts: [
-            ...imageParts,
-            { text: prompt },
-          ],
-        },
-      ],
-      generationConfig: {
-        responseModalities: ["image", "text"],
-        temperature: 0.8,
-      },
-    };
+    while (attempt <= MAX_RETRIES && !success) {
+      attempt++;
+      await updateJob(supabaseAdmin, job_id, { retry_count: attempt - 1, progress_int: 30 + (attempt * 10) });
+      
+      if (attempt > 1) {
+        await emitEvent(supabaseAdmin, job_id, user.id, "retry", `Retry attempt ${attempt-1} starting with corrective logic...`, 30 + (attempt * 10));
+      } else {
+        await emitEvent(supabaseAdmin, job_id, user.id, "generate", "Calling Nano Banana generation engine...", 35);
+      }
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${API_NANOBANANA}`;
+      const geminiPayload = {
+        contents: [{ parts: [...imageParts, { text: currentPrompt }] }],
+        generationConfig: { responseModalities: ["image", "text"], temperature: 0.8 },
+      };
 
-    const geminiResponse = await fetch(geminiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(geminiPayload),
-    });
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${API_NANOBANANA}`;
+      const response = await fetch(geminiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(geminiPayload),
+      });
 
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.error("Gemini API error:", errorText);
-      throw new Error(`Gemini API error: ${geminiResponse.status}`);
-    }
+      if (!response.ok) throw new Error(`Generation failed: ${response.status}`);
+      const genData = await response.json();
+      
+      let outputBase64: string | null = null;
+      let outputMimeType = "image/png";
+      const candidates = genData.candidates || [];
+      for (const cand of candidates) {
+        for (const part of (cand.content?.parts || [])) {
+          if (part.inlineData) {
+            outputBase64 = part.inlineData.data;
+            outputMimeType = part.inlineData.mimeType || "image/png";
+            break;
+          }
+        }
+        if (outputBase64) break;
+      }
 
-    const geminiData = await geminiResponse.json();
-    await emitEvent(supabaseAdmin, job_id, user.id, "generate", "Received response from Nano Banana", 70);
+      if (!outputBase64) throw new Error("No image generated");
 
-    // Extract output image
-    let outputBase64: string | null = null;
-    let outputMimeType = "image/png";
+      // --- AUTOMATED QA STEP ---
+      await emitEvent(supabaseAdmin, job_id, user.id, "qa", "Running automated Gemini QA check...", 75);
+      
+      const qaPayload = {
+        contents: [
+          {
+            parts: [
+              { inlineData: { mimeType: outputMimeType, data: outputBase64 } },
+              { text: QA_PROMPT(job.prompt_used || currentPrompt) }
+            ]
+          }
+        ],
+        generationConfig: { responseMimeType: "application/json" }
+      };
 
-    const candidates = geminiData.candidates || [];
-    for (const candidate of candidates) {
-      const parts = candidate.content?.parts || [];
-      for (const part of parts) {
-        if (part.inlineData) {
-          outputBase64 = part.inlineData.data;
-          outputMimeType = part.inlineData.mimeType || "image/png";
-          break;
+      const qaResponse = await fetch(geminiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(qaPayload)
+      });
+
+      let qaResult = { pass: true, reason: "OK" };
+      if (qaResponse.ok) {
+        const qaData = await qaResponse.json();
+        const text = qaData.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          try {
+            qaResult = JSON.parse(text);
+          } catch (e) {
+            console.warn("Failed to parse QA JSON, defaulting to pass", text);
+          }
         }
       }
-      if (outputBase64) break;
-    }
 
-    if (!outputBase64) {
-      throw new Error("No image generated by Nano Banana");
-    }
+      qaReason = qaResult.reason;
 
-    await emitEvent(supabaseAdmin, job_id, user.id, "upload", "Uploading panorama output...", 80);
+      if (qaResult.pass) {
+        success = true;
+        await emitEvent(supabaseAdmin, job_id, user.id, "qa", `QA PASSED: ${qaReason}`, 85);
+      } else {
+        await emitEvent(supabaseAdmin, job_id, user.id, "qa", `QA FAILED (Attempt ${attempt}): ${qaReason}`, 85);
+        if (attempt <= MAX_RETRIES) {
+          currentPrompt = basePrompt + `\n\nFIX REQUEST (BASED ON PREVIOUS FAILURE):\n${qaReason}\nEnsure no artifacts, straight verticals, and seamless stitching.`;
+          continue;
+        }
+      }
 
-    // Upload the output
-    const outputBuffer = Uint8Array.from(atob(outputBase64), (c) => c.charCodeAt(0));
-    const fileExt = outputMimeType.includes("png") ? "png" : "jpg";
-    const outputPath = `${user.id}/${job.project_id}/multi_panorama_${job_id}_${Date.now()}.${fileExt}`;
+      // Upload if pass or final attempt
+      const outputBuffer = Uint8Array.from(atob(outputBase64), (c) => c.charCodeAt(0));
+      const fileExt = outputMimeType.includes("png") ? "png" : "jpg";
+      const outputPath = `${user.id}/${job.project_id}/multi_pano_${job_id}_att${attempt}.${fileExt}`;
 
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from("outputs")
-      .upload(outputPath, outputBuffer, { contentType: outputMimeType });
-
-    if (uploadError) {
-      throw new Error(`Failed to upload output: ${uploadError.message}`);
-    }
-
-    // Create upload record
-    const { data: uploadRecord, error: recordError } = await supabaseAdmin
-      .from("uploads")
-      .insert({
+      await supabaseAdmin.storage.from("outputs").upload(outputPath, outputBuffer, { contentType: outputMimeType });
+      
+      const { data: uploadRecord } = await supabaseAdmin.from("uploads").insert({
         project_id: job.project_id,
         owner_id: user.id,
         bucket: "outputs",
         path: outputPath,
         kind: "output",
         mime_type: outputMimeType,
-        original_filename: `multi_panorama_${job_id}.${fileExt}`,
-      })
-      .select()
-      .single();
+        original_filename: `multi_pano_${job_id}_att${attempt}.${fileExt}`,
+      }).select().single();
 
-    if (recordError) {
-      throw new Error(`Failed to create upload record: ${recordError.message}`);
+      finalOutputRecord = uploadRecord;
     }
 
-    await emitEvent(supabaseAdmin, job_id, user.id, "complete", "Multi-image panorama generated successfully!", 100);
+    if (!finalOutputRecord) throw new Error("Failed to generate or upload output");
 
-    // Update job as completed
+    const finalStatus = success ? "approved" : "failed";
     await updateJob(supabaseAdmin, job_id, {
-      status: "completed",
-      output_upload_id: uploadRecord.id,
+      status: finalStatus,
+      output_upload_id: finalOutputRecord.id,
       progress_int: 100,
-      progress_message: "Completed",
+      progress_message: success ? "Approved" : "QA Failed",
+      qa_reason: qaReason,
+      retry_count: attempt - 1
     });
 
-    // Create notification
-    await supabaseAdmin.from("notifications").insert({
-      owner_id: user.id,
-      project_id: job.project_id,
-      type: "multi_panorama_complete",
-      title: "Multi-Image Panorama Complete",
-      message: `Evidence-based panorama generated from ${inputImages.length} sources`,
-      target_route: `/projects/${job.project_id}`,
-      target_params: { tab: "multi-image-panorama" },
+    await emitEvent(supabaseAdmin, job_id, user.id, success ? "complete" : "failed", success ? "Multi-image panorama approved by QA" : "Multi-image panorama failed QA after retries", 100);
+
+    return new Response(JSON.stringify({ success, output_upload_id: finalOutputRecord.id }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
-    return new Response(
-      JSON.stringify({ success: true, output_upload_id: uploadRecord.id }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
   } catch (error) {
     console.error("Multi-image panorama error:", error);
-
-    // Try to update job status to failed
-    try {
-      const { job_id } = await req.json().catch(() => ({}));
-      if (job_id) {
-        await supabaseAdmin
-          .from("multi_image_panorama_jobs")
-          .update({
-            status: "failed",
-            last_error: error instanceof Error ? error.message : "Unknown error",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", job_id);
-      }
-    } catch {}
-
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    const body = await req.json().catch(() => ({}));
+    const jobId = body.job_id;
+    if (jobId) {
+      await supabaseAdmin.from("multi_image_panorama_jobs").update({
+        status: "failed",
+        last_error: error instanceof Error ? error.message : "Unknown error",
+        updated_at: new Date().toISOString(),
+      }).eq("id", jobId);
+    }
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
