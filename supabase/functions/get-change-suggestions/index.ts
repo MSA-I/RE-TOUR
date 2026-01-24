@@ -32,9 +32,71 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { category, search, generate_more, surprise_me } = await req.json();
+    const { category, search, generate_more, surprise_me, context } = await req.json();
 
-    console.log(`Getting suggestions: category=${category}, search=${search}, generate_more=${generate_more}, surprise_me=${surprise_me}`);
+    console.log(`Getting suggestions: category=${category}, search=${search}, generate_more=${generate_more}, surprise_me=${surprise_me}, context=${context}`);
+
+    // Handle "multi_image_panorama" context - return strict relevant suggestions
+    if (context === "multi_image_panorama") {
+      const panoramaSuggestions = [
+        {
+          category: "panorama_stitching",
+          title: "Seamless Merge",
+          prompt: "Merge two or more panoramas into one seamless panorama, resolving all overlaps perfectly.",
+          is_generated: false
+        },
+        {
+          category: "panorama_stitching",
+          title: "Unified Stitch",
+          prompt: "Stitch multiple panoramas into a single unified panorama with consistent geometry.",
+          is_generated: false
+        },
+        {
+          category: "panorama_stitching",
+          title: "Align Edges",
+          prompt: "Align panorama edges and seams to ensure perfect continuity between source images.",
+          is_generated: false
+        },
+        {
+          category: "panorama_stitching",
+          title: "Blend Overlaps",
+          prompt: "Blend overlapping areas between panoramas to create invisible transitions.",
+          is_generated: false
+        },
+        {
+          category: "panorama_stitching",
+          title: "Fix Artifacts",
+          prompt: "Fix stitching artifacts such as visible seams, ghosting, or misalignment.",
+          is_generated: false
+        },
+        {
+          category: "panorama_stitching",
+          title: "Normalize Exposure",
+          prompt: "Normalize exposure and color consistency between all source panoramas.",
+          is_generated: false
+        },
+        {
+          category: "panorama_stitching",
+          title: "Correct Horizon",
+          prompt: "Correct horizon alignment across merged panoramas to ensure a level view.",
+          is_generated: false
+        },
+        {
+          category: "panorama_stitching",
+          title: "Optimize Geometry",
+          prompt: "Optimize stitching order for best geometric continuity and structural integrity.",
+          is_generated: false
+        }
+      ];
+
+      return new Response(
+        JSON.stringify({
+          suggestions: panoramaSuggestions,
+          categories: ["panorama_stitching"],
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Handle "Surprise me" - return random suggestion
     if (surprise_me) {

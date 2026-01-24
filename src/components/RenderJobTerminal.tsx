@@ -15,10 +15,11 @@ interface LogEntry {
 interface RenderJobTerminalProps {
   jobId: string;
   isOpen: boolean;
+  type?: "render" | "multi_image_panorama";
 }
 
 export const RenderJobTerminal = forwardRef<HTMLDivElement, RenderJobTerminalProps>(
-  function RenderJobTerminal({ jobId, isOpen }, ref) {
+  function RenderJobTerminal({ jobId, isOpen, type = "render" }, ref) {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -30,16 +31,25 @@ export const RenderJobTerminal = forwardRef<HTMLDivElement, RenderJobTerminalPro
       setIsLoading(true);
       setLogs([]); // Clear logs when switching jobs
 
+      const tableName = type === "multi_image_panorama" ? "multi_image_panorama_events" : "render_job_logs";
+      const timeColumn = type === "multi_image_panorama" ? "ts" : "created_at";
+
       // Fetch existing logs
       const fetchLogs = async () => {
         const { data, error } = await supabase
-          .from("render_job_logs")
+          .from(tableName)
           .select("*")
           .eq("job_id", jobId)
-          .order("created_at", { ascending: true });
+          .order(timeColumn, { ascending: true });
 
         if (!error && data) {
-          setLogs(data as LogEntry[]);
+          const transformedLogs = data.map((entry: any) => ({
+            id: entry.id,
+            created_at: entry[timeColumn],
+            level: entry.level || entry.type || "info",
+            message: entry.message
+          }));
+          setLogs(transformedLogs);
         }
         setIsLoading(false);
       };
@@ -54,11 +64,17 @@ export const RenderJobTerminal = forwardRef<HTMLDivElement, RenderJobTerminalPro
           {
             event: "INSERT",
             schema: "public",
-            table: "render_job_logs",
+            table: tableName,
             filter: `job_id=eq.${jobId}`,
           },
           (payload) => {
-            const newLog = payload.new as LogEntry;
+            const entry = payload.new as any;
+            const newLog = {
+              id: entry.id,
+              created_at: entry[timeColumn],
+              level: entry.level || entry.type || "info",
+              message: entry.message
+            };
             setLogs((prev) => [...prev, newLog]);
           }
         )
@@ -67,7 +83,7 @@ export const RenderJobTerminal = forwardRef<HTMLDivElement, RenderJobTerminalPro
       return () => {
         supabase.removeChannel(channel);
       };
-    }, [jobId, isOpen]);
+    }, [jobId, isOpen, type]);
 
     // Auto-scroll to bottom when new logs arrive
     useEffect(() => {

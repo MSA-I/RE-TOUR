@@ -140,7 +140,7 @@ serve(async (req) => {
       });
     }
 
-    const { change_request, style_prompt, include_style } = await req.json();
+    const { change_request, style_prompt, include_style, context } = await req.json();
 
     if (!change_request || !change_request.trim()) {
       return new Response(JSON.stringify({ error: "Change request is required" }), {
@@ -173,7 +173,7 @@ serve(async (req) => {
     contextParts.push(`BEST PRACTICES:\n${BEST_PRACTICES}`);
 
     // Use OpenAI to compose the final prompt - MINIMAL AI creativity, just merge inputs
-    const systemPrompt = `You are a prompt merger for Nano Banana Pro (architectural visualization AI).
+    let systemPrompt = `You are a prompt merger for Nano Banana Pro (architectural visualization AI).
 
 Your ONLY job is to combine the provided inputs into a single coherent prompt. DO NOT invent, add, or create new content.
 
@@ -192,6 +192,22 @@ If user says "replace floor with marble" and template says "Replace the specifie
 Output: "Replace the floor with marble tiles. Ensure the new material looks realistic under the existing lighting and shadows. Keep everything else in the scene exactly as it is in the original image."
 
 DO NOT add creative embellishments.`;
+
+    if (context === "multi_image_panorama") {
+      systemPrompt = `You are an expert image merger for architectural panoramas.
+Your ONLY job is to create a prompt that instructs the AI to merge multiple images into a seamless panorama based strictly on provided spatial evidence.
+
+STRICT RULES:
+1. Focus exclusively on MERGING, ALIGNING, and BLENDING the provided images.
+2. DO NOT invent new furniture, lighting, or architectural elements not seen in the source images.
+3. Emphasize "maintaining consistency" and "geometric coherence" across the stitched area.
+4. Use evidence from the images (walls, floors, horizons) to guide the merge accurately.
+5. NO HALLUCINATIONS: If a corner is not visible in any source, it must remain neutral or empty. Do not fill gaps with fictional content.
+6. IGNORE generic style requests: This operation is about spatial reconstruction, not style transfer or enhancement.
+
+Example Output:
+"Merge the provided images into a single seamless equirectangular panorama using only visible evidence. Align horizons perfectly and blend overlapping edges without inventing new details. Ensure material and lighting consistency across the reconstruction."`;
+    }
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",

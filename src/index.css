@@ -5,73 +5,8 @@
 /* Virtual Tour Orchestrator - Dark/Light Admin Dashboard Design System */
 
 @layer base {
-  /* Dark theme (default) */
-  :root,
-  .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-
-    --card: 222 47% 13%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222 47% 13%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 173 80% 40%;
-    --primary-foreground: 222 47% 11%;
-
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-
-    --accent: 173 58% 26%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 50% 55%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217 33% 22%;
-    --input: 217 33% 22%;
-    --ring: 173 80% 40%;
-
-    --radius: 0.5rem;
-
-    /* Status colors */
-    --status-queued: 220 14% 50%;
-    --status-running: 45 93% 47%;
-    --status-needs-review: 280 60% 65%;
-    --status-approved: 142 71% 45%;
-    --status-rejected: 0 50% 58%;
-    --status-failed: 0 50% 55%;
-    --status-draft: 215 20% 50%;
-    --status-active: 173 80% 40%;
-    --status-completed: 142 71% 45%;
-
-    /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(173 80% 40%) 0%, hsl(173 60% 30%) 100%);
-    --gradient-card: linear-gradient(180deg, hsl(222 47% 14%) 0%, hsl(222 47% 12%) 100%);
-    --gradient-subtle: linear-gradient(135deg, hsl(217 33% 17% / 0.5) 0%, hsl(222 47% 11% / 0.8) 100%);
-
-    /* Shadows */
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.4);
-    --shadow-glow: 0 0 20px hsl(173 80% 40% / 0.2);
-
-    --sidebar-background: 222 47% 9%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 173 80% 40%;
-    --sidebar-primary-foreground: 222 47% 11%;
-    --sidebar-accent: 217 33% 15%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 20%;
-    --sidebar-ring: 173 80% 40%;
-  }
-
-  /* Light theme - Premium architectural studio feel, calm and technical */
-  .light {
+  /* Light theme (default) - Premium architectural studio feel */
+  :root {
     /* Backgrounds: warm light gray, no pure white */
     --background: 213 18% 96%;          /* #F4F6F8 */
     --foreground: 210 27% 16%;          /* #1F2933 graphite black */
@@ -137,6 +72,68 @@
     --sidebar-accent-foreground: 210 27% 16%;
     --sidebar-border: 213 15% 85%;      /* #D6DBE1 */
     --sidebar-ring: 171 61% 46%;
+  }
+
+  /* Dark theme override */
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 13%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 13%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 173 80% 40%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 173 58% 26%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 50% 55%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 22%;
+    --input: 217 33% 22%;
+    --ring: 173 80% 40%;
+
+    /* Status colors */
+    --status-queued: 220 14% 50%;
+    --status-running: 45 93% 47%;
+    --status-needs-review: 280 60% 65%;
+    --status-approved: 142 71% 45%;
+    --status-rejected: 0 50% 58%;
+    --status-failed: 0 50% 55%;
+    --status-draft: 215 20% 50%;
+    --status-active: 173 80% 40%;
+    --status-completed: 142 71% 45%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(173 80% 40%) 0%, hsl(173 60% 30%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(222 47% 14%) 0%, hsl(222 47% 12%) 100%);
+    --gradient-subtle: linear-gradient(135deg, hsl(217 33% 17% / 0.5) 0%, hsl(222 47% 11% / 0.8) 100%);
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+    --shadow-glow: 0 0 20px hsl(173 80% 40% / 0.2);
+
+    --sidebar-background: 222 47% 9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 173 80% 40%;
+    --sidebar-primary-foreground: 222 47% 11%;
+    --sidebar-accent: 217 33% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 20%;
+    --sidebar-ring: 173 80% 40%;
   }
 }
 

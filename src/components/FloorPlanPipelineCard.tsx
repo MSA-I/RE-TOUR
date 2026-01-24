@@ -15,7 +15,7 @@ import { BeforeAfterSlider } from "@/components/BeforeAfterSlider";
 import { FloorPlanPipelineTerminal } from "@/components/FloorPlanPipelineTerminal";
 import { PipelineStepOutputs } from "@/components/PipelineStepOutputs";
 import { usePipelinePromptOptimizer } from "@/hooks/usePipelinePromptOptimizer";
-import { AspectRatioPreview, AspectRatioSelectItemContent } from "@/components/AspectRatioPreview";
+import { AspectRatioPreview, AspectRatioSelectItemContent, ASPECT_RATIOS } from "@/components/AspectRatioPreview";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -1116,7 +1116,7 @@ const FloorPlanPipelineCardInner = memo(function FloorPlanPipelineCardInner({
                       Delete Pipeline?
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will permanently delete this pipeline and all its outputs, events, and reviews. This action cannot be undone.
+                      This will permanently delete this pipeline and all its generated outputs (including those visible in Creations), events, and reviews. This action cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

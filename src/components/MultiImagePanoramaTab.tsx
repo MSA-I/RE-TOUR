@@ -1,24 +1,38 @@
-import { useState, useCallback, memo } from "react";
+import { useState, useCallback, memo, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useMultiImagePanoramaJobs, useMultiImagePanoramaEvents, MultiImagePanoramaJob } from "@/hooks/useMultiImagePanoramaJobs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  useMultiImagePanoramaJobs,
+  useMultiImagePanoramaEvents,
+  useMultiImagePanoramaAttempts,
+  MultiImagePanoramaJob,
+} from "@/hooks/useMultiImagePanoramaJobs";
 import { useStorage } from "@/hooks/useStorage";
+import { useUploads } from "@/hooks/useUploads";
+import { usePromptComposer } from "@/hooks/usePromptComposer";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { LazyImage } from "@/components/LazyImage";
+import { AspectRatioPreview, AspectRatioSelectItemContent, ASPECT_RATIOS } from "@/components/AspectRatioPreview";
+import { ChangeSuggestionsPanel } from "@/components/ChangeSuggestionsPanel";
+import { RenderJobTerminal } from "@/components/RenderJobTerminal";
 import { format } from "date-fns";
-import { 
+import {
   Loader2, Play, Trash2, Image, ImagePlus, Check, X, 
-  AlertTriangle, Layers, Eye, Maximize2, FlaskConical
+  AlertTriangle, Layers, Eye, Maximize2, FlaskConical, Terminal, Sparkles, Wand2,
+  Columns, ThumbsUp, Copy
 } from "lucide-react";
+import { BeforeAfterSlider } from "@/components/BeforeAfterSlider";
 
 interface MultiImagePanoramaTabProps {
   projectId: string;
@@ -29,7 +43,10 @@ interface MultiImagePanoramaTabProps {
 const statusColors: Record<string, string> = {
   pending: "bg-muted text-muted-foreground",
   running: "bg-blue-500/20 text-blue-400",
-  completed: "bg-green-500/20 text-green-400",
+  qa_running: "bg-amber-500/20 text-amber-400",
+  needs_review: "bg-amber-500/20 text-amber-400",
+  approved: "bg-green-500/20 text-green-400",
+  completed: "bg-amber-500/20 text-amber-400", // legacy
   failed: "bg-destructive/20 text-destructive",
 };
 
@@ -39,23 +56,39 @@ const JobCard = memo(function JobCard({
   onStart,
   onDelete,
   onViewOutput,
+  onUpdateStatus,
   isStarting,
   isDeleting,
+  isUpdating,
   inputPreviews,
   outputPreview,
+  onOpenTerminal,
+  terminalIsOpen,
 }: {
   job: MultiImagePanoramaJob;
   onStart: () => void;
   onDelete: () => void;
   onViewOutput: () => void;
+  onUpdateStatus: (status: string) => void;
   isStarting: boolean;
   isDeleting: boolean;
+  isUpdating: boolean;
   inputPreviews: Record<string, string>;
   outputPreview?: string;
+  onOpenTerminal: (id: string) => void;
+  terminalIsOpen: boolean;
 }) {
-  const events = useMultiImagePanoramaEvents(job.status === "running" ? job.id : null);
+  const events = useMultiImagePanoramaEvents(
+    job.status === "running" || job.status === "qa_running" ? job.id : null
+  );
+  const { data: attempts = [] } = useMultiImagePanoramaAttempts(job.id);
+  const latestAttempt = attempts.length > 0 ? attempts[attempts.length - 1] : null;
   const latestEvent = events[events.length - 1];
   const inputCount = (job.input_upload_ids || []).length;
+  
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [primaryInputId] = useState(() => job.input_upload_ids?.[0]);
+  const { toast } = useToast();
 
   return (
     <Card className="overflow-hidden">
@@ -64,26 +97,265 @@ const JobCard = memo(function JobCard({
           <div className="flex items-center gap-2">
             <FlaskConical className="h-4 w-4 text-muted-foreground" />
             <CardTitle className="text-base">Multi-Image Panorama</CardTitle>
-            <Badge variant="outline" className="text-xs">
-              Experimental
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge className={statusColors[job.status] || statusColors.pending}>
+              {job.status}
             </Badge>
           </div>
-          <Badge className={statusColors[job.status] || statusColors.pending}>
-            {job.status}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal bg-muted border border-border">
+            {job.aspect_ratio || "2:1"}
+          </Badge>
+          <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal bg-muted border border-border">
+            {job.output_resolution || "2K"}
           </Badge>
         </div>
-        <CardDescription className="text-xs">
+        <CardDescription className="text-xs mt-2">
           {format(new Date(job.created_at), "MMM d, yyyy HH:mm")} • {inputCount} source images
+          {job.retry_count && job.retry_count > 0 && (
+            <Badge variant="outline" className="ml-2 h-4 text-[9px] px-1 border-amber-500/50 text-amber-600">
+              {job.retry_count} {job.retry_count === 1 ? 'retry' : 'retries'}
+            </Badge>
+          )}
+          {job.prompt_used && (
+            <div className="mt-2 pt-2 border-t border-border/50">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  Request
+                </span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-4 w-4 text-muted-foreground hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(job.prompt_used || "");
+                    toast({ title: "Prompt copied" });
+                  }}
+                  title="Copy full prompt"
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground line-clamp-2 hover:line-clamp-none transition-all cursor-help bg-muted/30 p-1.5 rounded border border-border/30">
+                {job.prompt_used}
+              </p>
+            </div>
+          )}
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Input images grid */}
+        {/* Progress / Events */}
+        {((job.status === "running" || job.status === "qa_running") || terminalIsOpen) && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                {job.status === "running" || job.status === "qa_running" ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
+                ) : (
+                  <Terminal className="h-3 w-3 text-muted-foreground" />
+                )}
+                <span className="text-muted-foreground truncate max-w-[200px]">
+                  {(job.status === "running" || job.status === "qa_running") ? (latestEvent?.message || "Processing...") : "Process Log"}
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-[10px]"
+                onClick={() => onOpenTerminal(job.id)}
+              >
+                <Terminal className="h-3 w-3 mr-1" />
+                {terminalIsOpen ? "Hide Log" : "View Log"}
+              </Button>
+            </div>
+            {(job.status === "running" || job.status === "qa_running") && (
+              <Progress value={job.progress_int || 0} className="h-2" />
+            )}
+          </div>
+        )}
+
+        {/* AI QA status */}
+        {(job.status === "qa_running" || job.qa_summary || (job.qa_issues && job.qa_issues.length > 0)) && (
+          <div className="p-2.5 rounded-md bg-amber-500/5 border border-amber-500/20 space-y-2 animate-in fade-in slide-in-from-top-1">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider flex items-center gap-1.5">
+                <AlertTriangle className="h-3 w-3" />
+                AI QA
+              </p>
+              {job.status === "qa_running" && (
+                <Badge variant="outline" className="h-4 text-[9px] px-1 border-amber-500/40 text-amber-600">
+                  Running…
+                </Badge>
+              )}
+            </div>
+
+            {job.qa_summary && (
+              <p className="text-[11px] text-muted-foreground leading-relaxed italic">"{job.qa_summary}"</p>
+            )}
+
+            {job.qa_issues && job.qa_issues.length > 0 && (
+              <div className="space-y-1">
+                {job.qa_issues.slice(0, 6).map((issue, idx) => (
+                  <p key={idx} className="text-[11px] text-muted-foreground">
+                    <span className="font-medium">{issue.type}</span>
+                    <span className="text-muted-foreground/70"> ({issue.severity})</span>: {issue.description}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {latestAttempt?.corrective_instruction && !latestAttempt.qa_pass && (
+              <div className="pt-1 border-t border-amber-500/10">
+                <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                  Corrective Instruction
+                </p>
+                <p className="text-[11px] text-muted-foreground italic">"{latestAttempt.corrective_instruction}"</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Attempts summary */}
+        {attempts.length > 0 && (
+          <div className="rounded-md border bg-muted/20 p-2.5 space-y-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Attempts</p>
+            {attempts.map((a) => (
+              <div key={a.id} className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground">Attempt {a.attempt_number}</span>
+                <Badge
+                  variant="outline"
+                  className={a.qa_pass ? "border-green-500/30 text-green-600" : "border-destructive/30 text-destructive"}
+                >
+                  {a.qa_pass ? "PASS" : "FAIL"}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Output preview & QA - visible if has output or failed */}
+        {(outputPreview || job.status === "failed") && (
+          <div className="space-y-3">
+            {outputPreview && (
+              <>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground block">Output (Evidence-Based)</Label>
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      className="h-7 text-[10px]"
+                      onClick={() => onOpenTerminal(job.id)}
+                    >
+                      <Terminal className="h-3 w-3 mr-1" />
+                      {terminalIsOpen ? "Hide Log" : "View Log"}
+                    </Button>
+                  </div>
+                </div>
+                
+                {/* Primary Result View: Inline Compare Slider */}
+                <div className="rounded-lg border overflow-hidden bg-background">
+                  {primaryInputId && inputPreviews[primaryInputId] ? (
+                    <BeforeAfterSlider 
+                      beforeImage={inputPreviews[primaryInputId]} 
+                      afterImage={outputPreview}
+                      beforeLabel="Primary Source"
+                      afterLabel="Result"
+                      allowFullscreen={true}
+                    />
+                  ) : (
+                    <div 
+                      className="relative aspect-[2/1] cursor-pointer group"
+                      onClick={onViewOutput}
+                    >
+                      <img
+                        src={outputPreview}
+                        alt="Generated panorama"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Maximize2 className="h-6 w-6 text-white" />
+                      </div>
+                      <Badge className="absolute bottom-2 left-2 bg-green-600/80 text-white text-xs">
+                        Result
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Optional human override only if AI QA failed */}
+            {job.status === "needs_review" && (
+              <div className="flex flex-col gap-3 p-3 rounded-lg bg-destructive/5 border border-destructive/20">
+                <div className="space-y-0.5">
+                  <p className="text-xs font-medium text-destructive flex items-center gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    AI QA Failed
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">Optional override: approve anyway</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9 text-green-600 border-green-600/20 hover:bg-green-600/10"
+                  onClick={() => onUpdateStatus("approved")}
+                  disabled={isUpdating}
+                >
+                  <ThumbsUp className="h-3.5 w-3.5 mr-1.5" />
+                  Approve (Override)
+                </Button>
+              </div>
+            )}
+
+            {/* Error display */}
+            {job.status === "failed" && job.last_error && (
+              <div className="space-y-2">
+                <div className="flex items-start gap-2 p-3 rounded bg-destructive/10 border border-destructive/30">
+                  <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-destructive">{job.last_error}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full text-xs"
+                  onClick={() => onOpenTerminal(job.id)}
+                >
+                  <Terminal className="h-3.5 w-3.5 mr-2" />
+                  View Process Log
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Source images grid */}
         <div>
-          <Label className="text-xs text-muted-foreground mb-2 block">Source Images (Evidence)</Label>
+          <div className="flex items-center justify-between mb-2">
+            <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Source Evidence</Label>
+            {job.status === "pending" && (
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                className="h-5 px-1.5 text-[10px]"
+                onClick={() => onOpenTerminal(job.id)}
+              >
+                <Terminal className="h-3 w-3 mr-1" />
+                Logs
+              </Button>
+            )}
+          </div>
           <div className="flex gap-2 overflow-x-auto pb-2">
             {(job.input_upload_ids || []).slice(0, 5).map((uploadId, idx) => (
-              <div key={uploadId} className="relative w-16 h-16 rounded border bg-muted flex-shrink-0 overflow-hidden">
+              <div 
+                key={uploadId} 
+                className={`relative w-16 h-16 rounded border flex-shrink-0 overflow-hidden ${primaryInputId === uploadId ? 'ring-2 ring-primary' : 'bg-muted'}`}
+              >
                 {inputPreviews[uploadId] ? (
                   <img
                     src={inputPreviews[uploadId]}
@@ -93,6 +365,11 @@ const JobCard = memo(function JobCard({
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
                     <Image className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                )}
+                {primaryInputId === uploadId && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-primary/80 text-[8px] text-white text-center py-0.5 font-bold">
+                    PRIMARY
                   </div>
                 )}
               </div>
@@ -105,47 +382,35 @@ const JobCard = memo(function JobCard({
           </div>
         </div>
 
-        {/* Progress / Events */}
-        {job.status === "running" && (
-          <div className="space-y-2">
-            <Progress value={job.progress_int || 0} className="h-2" />
-            {latestEvent && (
-              <p className="text-xs text-muted-foreground truncate">
-                {latestEvent.message}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Output preview */}
-        {job.status === "completed" && outputPreview && (
-          <div>
-            <Label className="text-xs text-muted-foreground mb-2 block">Output (Evidence-Based)</Label>
-            <div 
-              className="relative aspect-[2/1] rounded border overflow-hidden cursor-pointer group"
-              onClick={onViewOutput}
-            >
-              <img
-                src={outputPreview}
-                alt="Generated panorama"
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <Maximize2 className="h-6 w-6 text-white" />
-              </div>
-              <Badge className="absolute bottom-2 left-2 bg-green-600/80 text-white text-xs">
-                Evidence-Based
-              </Badge>
+        {/* Comparison Dialog */}
+        <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
+          <DialogContent className="max-w-5xl max-h-[90vh]">
+            <DialogHeader>
+              <DialogTitle>Compare Before/After</DialogTitle>
+              <DialogDescription>
+                Compare primary source image against the generated panorama.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              {primaryInputId && inputPreviews[primaryInputId] && outputPreview ? (
+                <BeforeAfterSlider 
+                  beforeImage={inputPreviews[primaryInputId]} 
+                  afterImage={outputPreview}
+                  beforeLabel="Primary Source"
+                  afterLabel="Generated Panorama"
+                />
+              ) : (
+                <div className="flex items-center justify-center h-64 bg-muted rounded">
+                  <p className="text-sm text-muted-foreground">Comparison not available</p>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          </DialogContent>
+        </Dialog>
 
-        {/* Error display */}
-        {job.status === "failed" && job.last_error && (
-          <div className="flex items-start gap-2 p-3 rounded bg-destructive/10 border border-destructive/30">
-            <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-destructive">{job.last_error}</p>
-          </div>
+        {/* Terminal render */}
+        {terminalIsOpen && (
+          <RenderJobTerminal jobId={job.id} isOpen={true} type="multi_image_panorama" />
         )}
 
         {/* Actions */}
@@ -160,7 +425,7 @@ const JobCard = memo(function JobCard({
               Generate
             </Button>
           )}
-          {job.status === "completed" && (
+          {outputPreview && (
             <Button size="sm" variant="outline" onClick={onViewOutput}>
               <Eye className="h-4 w-4 mr-1" />
               View
@@ -190,8 +455,10 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
   creationsAttachments = [],
   onClearAttachments,
 }: MultiImagePanoramaTabProps) {
-  const { jobs, isLoading, createJob, startJob, deleteJob } = useMultiImagePanoramaJobs(projectId);
+  const { jobs, isLoading, createJob, startJob, deleteJob, updateJob } = useMultiImagePanoramaJobs(projectId);
+  const { uploads, createUpload, deleteUpload } = useUploads(projectId, "panorama");
   const { getSignedViewUrl } = useStorage();
+  const { composePrompt, isComposing: isPromptComposing } = usePromptComposer();
   const { toast } = useToast();
 
   // Local state
@@ -200,49 +467,98 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
   const [isCreating, setIsCreating] = useState(false);
   const [startingJobId, setStartingJobId] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
-  const [cameraPosition, setCameraPosition] = useState("center of the main living space at eye-level");
-  const [forwardDirection, setForwardDirection] = useState("toward the primary focal point");
+  const [updatingJobId, setUpdatingJobId] = useState<string | null>(null);
+  const [terminalJobId, setTerminalJobId] = useState<string | null>(null);
+  const [selectedResolution, setSelectedResolution] = useState("2K");
+  const [selectedRatio, setSelectedRatio] = useState("2:1");
+  const [changeRequest, setChangeRequest] = useState("");
+  const [composedPrompt, setComposedPrompt] = useState<string | null>(null);
 
   // View large modal
   const [viewLargeOpen, setViewLargeOpen] = useState(false);
   const [viewLargeUrl, setViewLargeUrl] = useState("");
 
-  // Load previews for attachments
-  const loadPreview = useCallback(async (uploadId: string) => {
+  // Filter jobs
+  const reviewJobs = jobs.filter(j => j.status !== "approved");
+  const approvedJobs = jobs.filter(j => j.status === "approved");
+
+  // Filter relevant uploads (only those that are in this project's panorama kind)
+  // Creations already provides some, but we might have fresh uploads here
+  const projectUploads = uploads;
+
+  // Load previews for attachments and uploads
+  const loadPreview = useCallback(async (uploadId: string, bucket: string, path: string) => {
     if (imagePreviews[uploadId]) return;
-
     try {
-      const { data: upload } = await supabase
-        .from("uploads")
-        .select("bucket, path")
-        .eq("id", uploadId)
-        .single();
-
-      if (upload) {
-        const { signedUrl } = await getSignedViewUrl(upload.bucket, upload.path);
-        if (signedUrl) {
-          setImagePreviews((prev) => ({ ...prev, [uploadId]: signedUrl }));
-        }
+      const { signedUrl } = await getSignedViewUrl(bucket, path);
+      if (signedUrl) {
+        setImagePreviews((prev) => ({ ...prev, [uploadId]: signedUrl }));
       }
     } catch (e) {
       console.error("Failed to load preview:", e);
     }
   }, [getSignedViewUrl, imagePreviews]);
 
-  // Initialize selected from attachments
-  useState(() => {
-    if (creationsAttachments.length > 0) {
-      const ids = new Set(creationsAttachments.map((a) => a.uploadId));
-      setSelectedImages(ids);
-      creationsAttachments.forEach((a) => {
-        if (a.previewUrl) {
-          setImagePreviews((prev) => ({ ...prev, [a.uploadId]: a.previewUrl! }));
-        } else {
-          loadPreview(a.uploadId);
+  // Load previews for jobs
+  useEffect(() => {
+    jobs.forEach(async (job) => {
+      // Load output preview
+      if (job.output_upload_id && !imagePreviews[job.output_upload_id]) {
+        const { data: upload } = await supabase.from("uploads").select("bucket, path").eq("id", job.output_upload_id).single();
+        if (upload) loadPreview(job.output_upload_id, upload.bucket, upload.path);
+      }
+      // Load input previews
+      (job.input_upload_ids || []).forEach(async (id) => {
+        if (!imagePreviews[id]) {
+          const { data: upload } = await supabase.from("uploads").select("bucket, path").eq("id", id).single();
+          if (upload) loadPreview(id, upload.bucket, upload.path);
         }
       });
+    });
+  }, [jobs, imagePreviews, loadPreview]);
+
+  // Initialize selected from attachments
+  useEffect(() => {
+    if (creationsAttachments.length > 0) {
+      const ids = new Set(selectedImages);
+      creationsAttachments.forEach((a) => {
+        ids.add(a.uploadId);
+        if (a.previewUrl) {
+          setImagePreviews((prev) => ({ ...prev, [a.uploadId]: a.previewUrl! }));
+        }
+      });
+      setSelectedImages(ids);
     }
-  });
+  }, [creationsAttachments]);
+
+  // Load previews for available uploads
+  useEffect(() => {
+    projectUploads.forEach((u) => {
+      if (!imagePreviews[u.id]) {
+        loadPreview(u.id, u.bucket, u.path);
+      }
+    });
+  }, [projectUploads, loadPreview, imagePreviews]);
+
+  // Handle file upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const uploadPromises = Array.from(files).map(file => 
+      createUpload.mutateAsync({ file, kind: "panorama" })
+    );
+
+    try {
+      const newUploads = await Promise.all(uploadPromises);
+      const newIds = new Set(selectedImages);
+      newUploads.forEach(u => newIds.add(u.id));
+      setSelectedImages(newIds);
+      toast({ title: `Uploaded ${files.length} images` });
+    } catch (error) {
+      toast({ title: "Upload failed", variant: "destructive" });
+    }
+  };
 
   // Toggle image selection
   const toggleImage = (uploadId: string) => {
@@ -255,6 +571,37 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
       }
       return next;
     });
+  };
+
+  const handleComposePrompt = async () => {
+    if (!changeRequest.trim() && selectedImages.size < 2) {
+      toast({ title: "Please enter a request or select images", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const result = await composePrompt.mutateAsync({
+        changeRequest: changeRequest.trim() || "Merge reference images into one consistent panorama.",
+        includeStyle: false,
+        context: "multi_image_panorama"
+      });
+
+      setComposedPrompt(result.composed_prompt);
+      toast({ title: "Prompt composed successfully" });
+    } catch (error) {
+      toast({
+        title: "Failed to compose prompt",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleCopyPrompt = () => {
+    if (composedPrompt) {
+      navigator.clipboard.writeText(composedPrompt);
+      toast({ title: "Prompt copied to clipboard" });
+    }
   };
 
   // Create new job
@@ -270,14 +617,25 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
 
     setIsCreating(true);
     try {
+      const finalChangeRequest = composedPrompt || changeRequest.trim() || "Merge reference images into one consistent panorama.";
+      
       const newJob = await createJob.mutateAsync({
         inputUploadIds: Array.from(selectedImages),
-        cameraPosition: cameraPosition.trim() || undefined,
-        forwardDirection: forwardDirection.trim() || undefined,
+        outputResolution: selectedResolution,
+        aspectRatio: selectedRatio,
       });
 
+      if (composedPrompt || changeRequest.trim()) {
+        await supabase
+          .from("multi_image_panorama_jobs")
+          .update({ prompt_used: finalChangeRequest })
+          .eq("id", newJob.id);
+      }
+      
       toast({ title: "Job created", description: "Click Generate to start panorama creation." });
       setSelectedImages(new Set());
+      setChangeRequest("");
+      setComposedPrompt(null);
       onClearAttachments?.();
     } catch (error) {
       toast({
@@ -295,6 +653,10 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
     setStartingJobId(jobId);
     try {
       await startJob.mutateAsync(jobId);
+      toast({ title: "Panorama generation started" });
+    } catch (error) {
+      // Hook already shows a toast; keep a console log for debugging.
+      console.error("Failed to start panorama job", error);
     } finally {
       setStartingJobId(null);
     }
@@ -302,6 +664,7 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
 
   // Delete job
   const handleDeleteJob = async (jobId: string) => {
+    if (!confirm("Are you sure you want to delete this job?")) return;
     setDeletingJobId(jobId);
     try {
       await deleteJob.mutateAsync(jobId);
@@ -310,17 +673,22 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
     }
   };
 
+  // Update status (QA)
+  const handleUpdateStatus = async (jobId: string, status: string) => {
+    setUpdatingJobId(jobId);
+    try {
+      await updateJob.mutateAsync({ jobId, status });
+      toast({ title: status === "approved" ? "QA Approved" : "Status updated" });
+    } finally {
+      setUpdatingJobId(null);
+    }
+  };
+
   // View output
   const handleViewOutput = async (job: MultiImagePanoramaJob) => {
     if (!job.output_upload_id) return;
-
     try {
-      const { data: upload } = await supabase
-        .from("uploads")
-        .select("bucket, path")
-        .eq("id", job.output_upload_id)
-        .single();
-
+      const { data: upload } = await supabase.from("uploads").select("bucket, path").eq("id", job.output_upload_id).single();
       if (upload) {
         const { signedUrl } = await getSignedViewUrl(upload.bucket, upload.path);
         if (signedUrl) {
@@ -333,32 +701,17 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
     }
   };
 
-  // Get output preview for a job
   const getOutputPreview = (job: MultiImagePanoramaJob): string | undefined => {
     if (!job.output_upload_id) return undefined;
     return imagePreviews[job.output_upload_id];
   };
 
-  // Load output previews for completed jobs
-  jobs.forEach((job) => {
-    if (job.status === "completed" && job.output_upload_id && !imagePreviews[job.output_upload_id]) {
-      loadPreview(job.output_upload_id);
-    }
-    // Load input previews
-    (job.input_upload_ids || []).forEach((id) => {
-      if (!imagePreviews[id]) loadPreview(id);
-    });
-  });
-
   return (
     <div className="space-y-6">
-      {/* Header with experimental badge */}
+      {/* Header */}
       <div className="flex items-center gap-3">
         <FlaskConical className="h-5 w-5 text-primary" />
         <h2 className="text-lg font-semibold">Multi-Image Panorama</h2>
-        <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
-          Experimental
-        </Badge>
       </div>
 
       {/* Description */}
@@ -366,11 +719,8 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
         <CardContent className="py-4">
           <p className="text-sm text-muted-foreground">
             Generate a TRUE 360° panorama from <strong>multiple reference images</strong>. 
-            Unlike standard generation, this feature treats your images as <strong>spatial evidence</strong> — 
-            the AI will NOT invent rooms, furniture, or spaces not visible in your references.
-          </p>
-          <p className="text-xs text-muted-foreground mt-2">
-            <strong>Principle:</strong> Better incomplete truth than complete fiction.
+            This feature treats your images as <strong>spatial evidence</strong> — 
+            the AI will NOT invent rooms or furniture not visible in your references.
           </p>
         </CardContent>
       </Card>
@@ -383,153 +733,281 @@ export const MultiImagePanoramaTab = memo(function MultiImagePanoramaTab({
             Create New Panorama
           </CardTitle>
           <CardDescription>
-            Select 2+ images from Creations to use as spatial evidence
+            Select 2+ images to use as spatial evidence. You can upload new images or attach from Creations.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Selected images */}
-          {creationsAttachments.length > 0 && (
-            <div>
-              <Label className="text-xs text-muted-foreground mb-2 block">
-                Attached from Creations ({creationsAttachments.length})
-              </Label>
-              <div className="flex gap-2 flex-wrap">
-                {creationsAttachments.map((attachment) => (
+        <CardContent className="space-y-5">
+          {/* Upload Area */}
+          <div className="space-y-3">
+            <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">1. Source Evidence</Label>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
+              {/* Upload Trigger */}
+              <label className="relative aspect-square rounded-lg border-2 border-dashed border-border hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer flex flex-col items-center justify-center gap-2 group">
+                <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileUpload} />
+                <div className="w-8 h-8 rounded-full bg-muted group-hover:bg-primary/10 flex items-center justify-center transition-colors">
+                  <ImagePlus className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+                </div>
+                <span className="text-[10px] font-medium text-muted-foreground group-hover:text-primary">Upload Images</span>
+              </label>
+
+              {/* Combined selectable images: Attachments + Project Uploads */}
+              {[
+                ...creationsAttachments.map(a => ({ id: a.uploadId, name: a.filename, isPersisted: false, upload: null })), 
+                ...projectUploads.map(u => ({ id: u.id, name: u.original_filename, isPersisted: true, upload: u }))
+              ]
+                .filter((v, i, a) => a.findIndex(t => t.id === v.id) === i) // Unique by ID
+                .map((img) => (
                   <div
-                    key={attachment.uploadId}
-                    className={`relative w-20 h-20 rounded border overflow-hidden cursor-pointer transition-all ${
-                      selectedImages.has(attachment.uploadId)
-                        ? "ring-2 ring-primary border-primary"
-                        : "hover:border-muted-foreground"
+                    key={img.id}
+                    className={`relative aspect-square rounded-lg border overflow-hidden cursor-pointer transition-all group/item ${
+                      selectedImages.has(img.id) ? "ring-2 ring-primary border-primary shadow-lg scale-[1.02]" : "hover:border-muted-foreground"
                     }`}
-                    onClick={() => toggleImage(attachment.uploadId)}
+                    onClick={() => toggleImage(img.id)}
                   >
-                    {attachment.previewUrl || imagePreviews[attachment.uploadId] ? (
-                      <img
-                        src={attachment.previewUrl || imagePreviews[attachment.uploadId]}
-                        alt={attachment.filename}
-                        className="w-full h-full object-cover"
-                      />
+                    {imagePreviews[img.id] ? (
+                      <img src={imagePreviews[img.id]} alt={img.name || "Source"} className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-muted">
-                        <Image className="h-4 w-4 text-muted-foreground" />
+                      <div className="w-full h-full flex items-center justify-center bg-muted animate-pulse">
+                        <Image className="h-5 w-5 text-muted-foreground/50" />
                       </div>
                     )}
-                    {selectedImages.has(attachment.uploadId) && (
-                      <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                    
+                    {/* Selection Indicator */}
+                    {selectedImages.has(img.id) && (
+                      <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary flex items-center justify-center shadow-md z-10">
                         <Check className="h-3 w-3 text-primary-foreground" />
                       </div>
                     )}
+
+                    {/* Delete button for fresh uploads */}
+                    {img.isPersisted && img.upload && (
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="absolute bottom-1 right-1 w-6 h-6 rounded-md opacity-0 group-hover/item:opacity-100 transition-opacity z-20"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm("Delete this uploaded image?")) {
+                            deleteUpload.mutate(img.upload!);
+                            setSelectedImages(prev => {
+                              const next = new Set(prev);
+                              next.delete(img.id);
+                              return next;
+                            });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 ))}
-              </div>
             </div>
-          )}
-
-          {creationsAttachments.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-8 text-center border-2 border-dashed rounded-lg">
-              <Layers className="h-8 w-8 text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">
-                Go to <strong>Creations</strong> tab and select images to attach
+            
+            {selectedImages.size < 2 && (
+              <p className="text-[10px] text-amber-600 flex items-center gap-1.5 px-1">
+                <AlertTriangle className="h-3 w-3" />
+                Select at least 2 images to begin
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Use "Attach To" → "Multi-Image Panorama"
-              </p>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Camera settings */}
-          {selectedImages.size >= 2 && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="camera-position" className="text-xs">
-                  Camera Position
-                </Label>
-                <Input
-                  id="camera-position"
-                  value={cameraPosition}
-                  onChange={(e) => setCameraPosition(e.target.value)}
-                  placeholder="e.g., center of living room at eye-level"
-                  className="text-sm"
-                />
+          <div className="space-y-3 pt-2 border-t border-border/50">
+            <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">2. Refinement (Optional)</Label>
+            
+            <div className="border border-border/50 rounded-lg p-3 bg-muted/20">
+              <ChangeSuggestionsPanel 
+                onSelectSuggestion={(prompt) => setChangeRequest(prompt)}
+                context="multi_image_panorama"
+                enableCompose={true}
+                onApplyComposedPrompt={(prompt) => setComposedPrompt(prompt)}
+                changeRequestText={changeRequest}
+                isComposing={isPromptComposing}
+                onComposePrompt={handleComposePrompt}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="multi-change-request" className="text-xs">Custom Prompt / Request</Label>
+                {composedPrompt && (
+                   <Button variant="ghost" size="sm" className="h-6 text-[10px] text-primary" onClick={() => setComposedPrompt(null)}>
+                     Reset to Simple
+                   </Button>
+                )}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="forward-direction" className="text-xs">
-                  Forward Direction (0° yaw)
-                </Label>
-                <Input
-                  id="forward-direction"
-                  value={forwardDirection}
-                  onChange={(e) => setForwardDirection(e.target.value)}
-                  placeholder="e.g., toward the main window"
-                  className="text-sm"
+              {composedPrompt ? (
+                <Textarea
+                  value={composedPrompt}
+                  onChange={(e) => setComposedPrompt(e.target.value)}
+                  className="text-xs font-mono bg-primary/5 border-primary/20 min-h-[80px]"
                 />
+              ) : (
+                <Input
+                  id="multi-change-request"
+                  placeholder="Describe how to merge or what to emphasize..."
+                  value={changeRequest}
+                  onChange={(e) => setChangeRequest(e.target.value)}
+                  className="bg-background text-sm h-9"
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Settings */}
+          <div className="pt-2 border-t border-border/50">
+            <div className="space-y-4">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">3. Output Settings</Label>
+              
+              <div className="grid gap-6 sm:grid-cols-2 p-4 bg-muted/20 rounded-lg border border-border/50">
+                <div className="space-y-3">
+                  <Label htmlFor="multi-ratio" className="text-xs font-semibold">Aspect Ratio</Label>
+                  <Select value={selectedRatio} onValueChange={setSelectedRatio}>
+                    <SelectTrigger id="multi-ratio" className="bg-background border-border h-10">
+                      <div className="flex items-center gap-2">
+                        <AspectRatioPreview ratio={selectedRatio} size="sm" selected />
+                        <span>{selectedRatio}</span>
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent className="bg-background border-border max-h-[300px]">
+                      {Object.keys(ASPECT_RATIOS).map((ratio) => (
+                        <SelectItem key={ratio} value={ratio}>
+                          <AspectRatioSelectItemContent value={ratio} />
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground italic">
+                    Note: 2:1 is recommended for VR viewers.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <Label htmlFor="multi-resolution" className="text-xs font-semibold">Select Quality</Label>
+                  <Select value={selectedResolution} onValueChange={setSelectedResolution}>
+                    <SelectTrigger id="multi-resolution" className="bg-background border-border h-10">
+                      <SelectValue placeholder="Select quality" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border">
+                      <SelectItem value="1K" className="py-2.5">
+                        <span className="font-medium">1K</span>
+                        <span className="text-muted-foreground ml-2">· Fast Preview</span>
+                      </SelectItem>
+                      <SelectItem value="2K" className="py-2.5">
+                        <span className="font-medium">2K</span>
+                        <span className="text-muted-foreground ml-2">· Balanced</span>
+                      </SelectItem>
+                      <SelectItem value="4K" className="py-2.5">
+                        <span className="font-medium">4K</span>
+                        <span className="text-muted-foreground ml-2">· Production</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* Create button */}
           <Button
             onClick={handleCreateJob}
             disabled={selectedImages.size < 2 || isCreating}
-            className="w-full"
+            className="w-full shadow-md py-6 text-base font-semibold"
           >
-            {isCreating ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <ImagePlus className="h-4 w-4 mr-2" />
-            )}
-            Create Job ({selectedImages.size} images selected)
+            {isCreating ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Play className="h-5 w-5 mr-2" />}
+            Create Panorama Job ({selectedImages.size} images)
           </Button>
         </CardContent>
       </Card>
 
-      {/* Jobs list */}
-      <div className="space-y-4">
-        <h3 className="text-sm font-medium text-muted-foreground">Jobs</h3>
+      {/* Results Layout */}
+      <div className="grid gap-8 lg:grid-cols-2">
+        {/* Queue & Review */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Layers className="h-4 w-4 text-primary" />
+              Queue & Review
+              {reviewJobs.length > 0 && <Badge variant="secondary" className="ml-1 h-5 px-1.5">{reviewJobs.length}</Badge>}
+            </h3>
+          </div>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          {isLoading ? (
+            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground/30" /></div>
+          ) : reviewJobs.length === 0 ? (
+            <div className="py-12 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-muted-foreground/50">
+               <FlaskConical className="h-8 w-8 mb-2 opacity-20" />
+               <p className="text-xs">No jobs in queue</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {reviewJobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  onStart={() => handleStartJob(job.id)}
+                  onDelete={() => handleDeleteJob(job.id)}
+                  onViewOutput={() => handleViewOutput(job)}
+                  onUpdateStatus={(status) => handleUpdateStatus(job.id, status)}
+                  isStarting={startingJobId === job.id}
+                  isDeleting={deletingJobId === job.id}
+                  isUpdating={updatingJobId === job.id}
+                  inputPreviews={imagePreviews}
+                  outputPreview={getOutputPreview(job)}
+                  onOpenTerminal={(id) => setTerminalJobId(terminalJobId === id ? null : id)}
+                  terminalIsOpen={terminalJobId === job.id}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Approved Jobs */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Check className="h-4 w-4 text-green-500" />
+              Approved Results
+              {approvedJobs.length > 0 && <Badge variant="outline" className="ml-1 h-5 px-1.5 border-green-500/30 text-green-600">{approvedJobs.length}</Badge>}
+            </h3>
           </div>
-        ) : jobs.length === 0 ? (
-          <Card className="py-8">
-            <CardContent className="flex flex-col items-center justify-center text-center">
-              <FlaskConical className="h-8 w-8 text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">No panorama jobs yet</p>
-              <p className="text-xs text-muted-foreground">Create one above to get started</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4">
-            {jobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                onStart={() => handleStartJob(job.id)}
-                onDelete={() => handleDeleteJob(job.id)}
-                onViewOutput={() => handleViewOutput(job)}
-                isStarting={startingJobId === job.id}
-                isDeleting={deletingJobId === job.id}
-                inputPreviews={imagePreviews}
-                outputPreview={getOutputPreview(job)}
-              />
-            ))}
-          </div>
-        )}
+
+          {approvedJobs.length === 0 ? (
+            <div className="py-12 border rounded-xl flex flex-col items-center justify-center text-muted-foreground/30 bg-muted/5">
+               <Image className="h-8 w-8 mb-2 opacity-10" />
+               <p className="text-xs text-center px-8">Approved panoramas will appear here.<br/>Review items in the queue to approve them.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {approvedJobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  onStart={() => handleStartJob(job.id)}
+                  onDelete={() => handleDeleteJob(job.id)}
+                  onViewOutput={() => handleViewOutput(job)}
+                  onUpdateStatus={(status) => handleUpdateStatus(job.id, status)}
+                  isStarting={startingJobId === job.id}
+                  isDeleting={deletingJobId === job.id}
+                  isUpdating={updatingJobId === job.id}
+                  inputPreviews={imagePreviews}
+                  outputPreview={getOutputPreview(job)}
+                  onOpenTerminal={(id) => setTerminalJobId(terminalJobId === id ? null : id)}
+                  terminalIsOpen={terminalJobId === job.id}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* View large modal */}
       <Dialog open={viewLargeOpen} onOpenChange={setViewLargeOpen}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden p-0">
           <div className="relative w-full h-full">
-            <img
-              src={viewLargeUrl}
-              alt="Multi-image panorama output"
-              className="w-full h-auto max-h-[85vh] object-contain"
-            />
+            <img src={viewLargeUrl} alt="Output" className="w-full h-auto max-h-[85vh] object-contain" />
             <Badge className="absolute bottom-4 left-4 bg-green-600/90 text-white">
-              Multi-Image Panorama (Evidence-Based)
+              Multi-Image Panorama (Approved)
             </Badge>
           </div>
         </DialogContent>

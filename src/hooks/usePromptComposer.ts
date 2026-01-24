@@ -5,6 +5,7 @@ interface ComposePromptParams {
   changeRequest: string;
   stylePrompt?: string;
   includeStyle: boolean;
+  context?: string;
 }
 
 interface ComposePromptResult {
@@ -14,12 +15,13 @@ interface ComposePromptResult {
 
 export function usePromptComposer() {
   const composePrompt = useMutation({
-    mutationFn: async ({ changeRequest, stylePrompt, includeStyle }: ComposePromptParams): Promise<ComposePromptResult> => {
+    mutationFn: async ({ changeRequest, stylePrompt, includeStyle, context }: ComposePromptParams): Promise<ComposePromptResult> => {
       const { data, error } = await supabase.functions.invoke("compose-final-prompt", {
         body: {
           change_request: changeRequest,
           style_prompt: stylePrompt,
-          include_style: includeStyle
+          include_style: includeStyle,
+          context
         }
       });
 

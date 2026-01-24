@@ -41,9 +41,78 @@ interface ChangeSuggestionsPanelProps {
   referenceImages?: ReferenceImage[];
   /** Callback when style transfer is applied with selected references */
   onApplyStyleTransfer?: (selectedRefIds: string[], prompt: string) => void;
+  /** Context for suggestions (e.g., "render", "multi_image_panorama") */
+  context?: string;
 }
 
 const STYLE_TRANSFER_PROMPT = `Apply the overall style (materials, color palette, lighting mood, furniture language) from the selected reference(s) to the panorama while keeping the layout, perspective, camera angle, and all architectural elements unchanged. Preserve the room geometry exactly as it is.`;
+
+const PANORAMA_STITCHING_SUGGESTIONS = [
+  {
+    id: "pano_1",
+    category: "panorama_stitching",
+    title: "Seamless Merge",
+    prompt: "Merge two or more panoramas into one seamless panorama, resolving all overlaps perfectly.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_2",
+    category: "panorama_stitching",
+    title: "Unified Stitch",
+    prompt: "Stitch multiple panoramas into a single unified panorama with consistent geometry.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_3",
+    category: "panorama_stitching",
+    title: "Align Edges",
+    prompt: "Align panorama edges and seams to ensure perfect continuity between source images.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_4",
+    category: "panorama_stitching",
+    title: "Blend Overlaps",
+    prompt: "Blend overlapping areas between panoramas to create invisible transitions.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_5",
+    category: "panorama_stitching",
+    title: "Fix Artifacts",
+    prompt: "Fix stitching artifacts such as visible seams, ghosting, or misalignment.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_6",
+    category: "panorama_stitching",
+    title: "Normalize Exposure",
+    prompt: "Normalize exposure and color consistency between all source panoramas.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_7",
+    category: "panorama_stitching",
+    title: "Correct Horizon",
+    prompt: "Correct horizon alignment across merged panoramas to ensure a level view.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_8",
+    category: "panorama_stitching",
+    title: "Optimize Geometry",
+    prompt: "Optimize stitching order for best geometric continuity and structural integrity.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  }
+];
 
 function ChangeSuggestionsPanelComponent({ 
   onSelectSuggestion, 
@@ -54,10 +123,11 @@ function ChangeSuggestionsPanelComponent({
   isComposing = false,
   onComposePrompt,
   referenceImages = [],
-  onApplyStyleTransfer
+  onApplyStyleTransfer,
+  context
 }: ChangeSuggestionsPanelProps) {
   const {
-    suggestions,
+    suggestions: fetchedSuggestions,
     categories,
     isLoading,
     isGenerating,
@@ -67,6 +137,14 @@ function ChangeSuggestionsPanelComponent({
   } = useChangeSuggestions();
 
   const [mode, setMode] = useState<"edits" | "style_transfer">("edits");
+  
+  // Force "edits" mode and hide tabs if context is multi_image_panorama
+  const isMultiPano = context === "multi_image_panorama";
+  
+  // Use hardcoded suggestions as fallback/override for strict context safety
+  // This ensures no design suggestions ever leak into this tab
+  const suggestions = isMultiPano ? PANORAMA_STITCHING_SUGGESTIONS : fetchedSuggestions;
+  
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   
@@ -88,8 +166,8 @@ function ChangeSuggestionsPanelComponent({
   useEffect(() => {
     if (initialFetchDone.current) return;
     initialFetchDone.current = true;
-    fetchSuggestions();
-  }, [fetchSuggestions]);
+    fetchSuggestions(undefined, undefined, context);
+  }, [fetchSuggestions, context]);
 
   // Handle category/search changes with debounce
   useEffect(() => {
@@ -97,13 +175,13 @@ function ChangeSuggestionsPanelComponent({
     if (!initialFetchDone.current) return;
     
     const debounce = setTimeout(() => {
-      fetchSuggestions(selectedCategory === "all" ? undefined : selectedCategory, searchQuery || undefined);
+      fetchSuggestions(selectedCategory === "all" ? undefined : selectedCategory, searchQuery || undefined, context);
     }, 300);
     return () => clearTimeout(debounce);
-  }, [selectedCategory, searchQuery, fetchSuggestions]);
+  }, [selectedCategory, searchQuery, fetchSuggestions, context]);
 
   const handleSurpriseMe = async () => {
-    const suggestion = await getSurprise();
+    const suggestion = await getSurprise(context);
     if (suggestion) {
       if (enableCompose) {
         // In compose mode, add to selection
@@ -201,9 +279,14 @@ function ChangeSuggestionsPanelComponent({
     lighting: "Lighting",
     decor: "Decor",
     atmosphere: "Atmosphere",
+    panorama_stitching: "Panorama Stitching",
   };
 
   const filteredSuggestions = suggestions.filter((s) => {
+    // Strict filtering for multi_image_panorama context
+    if (context === "multi_image_panorama" && s.category !== "panorama_stitching") {
+      return false;
+    }
     if (selectedCategory !== "all" && s.category !== selectedCategory) return false;
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -216,21 +299,25 @@ function ChangeSuggestionsPanelComponent({
 
   return (
     <div className="space-y-4">
-      {/* Mode Toggle */}
-      <Tabs value={mode} onValueChange={(v) => setMode(v as "edits" | "style_transfer")}>
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="edits" className="gap-2">
-            <Wand2 className="h-4 w-4" />
-            Design Edits
-          </TabsTrigger>
-          <TabsTrigger value="style_transfer" className="gap-2">
-            <Palette className="h-4 w-4" />
-            Style Transfer
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {/* Mode Toggle - Hidden for Multi-Pano */}
+      {!isMultiPano && (
+        <Tabs value={mode} onValueChange={(v) => setMode(v as "edits" | "style_transfer")}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="edits" className="gap-2">
+              <Wand2 className="h-4 w-4" />
+              Design Edits
+            </TabsTrigger>
+            <TabsTrigger value="style_transfer" className="gap-2">
+              <Palette className="h-4 w-4" />
+              Style Transfer
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
 
-      {mode === "style_transfer" ? (
+
+
+      {mode === "style_transfer" && !isMultiPano ? (
         /* Style Transfer Mode */
         <div className="space-y-4">
           <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
@@ -454,7 +541,7 @@ function ChangeSuggestionsPanelComponent({
             variant="ghost"
             size="sm"
             className="w-full"
-            onClick={() => generateMore(selectedCategory === "all" ? undefined : selectedCategory)}
+            onClick={() => generateMore(selectedCategory === "all" ? undefined : selectedCategory, context)}
             disabled={isGenerating}
           >
             {isGenerating ? (

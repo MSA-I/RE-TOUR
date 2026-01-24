@@ -8,9 +8,9 @@ export function useTheme() {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem(THEME_KEY) as Theme | null;
-      return stored || "dark";
+      return stored || "light";
     }
-    return "dark";
+    return "light";
   });
 
   useEffect(() => {
@@ -18,9 +18,7 @@ export function useTheme() {
     
     if (theme === "dark") {
       root.classList.add("dark");
-      root.classList.remove("light");
     } else {
-      root.classList.add("light");
       root.classList.remove("dark");
     }
     

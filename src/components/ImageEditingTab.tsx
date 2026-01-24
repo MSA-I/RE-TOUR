@@ -10,6 +10,7 @@ import { useUploads } from "@/hooks/useUploads";
 import { useToast } from "@/hooks/use-toast";
 import { usePromptComposer } from "@/hooks/usePromptComposer";
 import { LazyImage } from "@/components/LazyImage";
+import { ASPECT_RATIOS, RATIO_OPTIONS } from "@/lib/constants/ratios";
 import { AspectRatioPreview, AspectRatioSelectItemContent } from "@/components/AspectRatioPreview";
 import { ChangeSuggestionsPanel } from "@/components/ChangeSuggestionsPanel";
 import { 
@@ -245,7 +246,7 @@ export const ImageEditingTab = memo(function ImageEditingTab({
       
       setChangeDescription("");
       setComposedPrompt(null);
-      onClearAttachment?.();
+      // onClearAttachment?.(); // Keep attachment for further editing
     } catch (error) {
       toast({
         title: "Failed to create edit job",
@@ -423,13 +424,11 @@ export const ImageEditingTab = memo(function ImageEditingTab({
                   </div>
                 </SelectTrigger>
                 <SelectContent className="bg-background border-border">
-                  <SelectItem value="1:1"><AspectRatioSelectItemContent value="1:1" /></SelectItem>
-                  <SelectItem value="16:9"><AspectRatioSelectItemContent value="16:9" /></SelectItem>
-                  <SelectItem value="9:16"><AspectRatioSelectItemContent value="9:16" /></SelectItem>
-                  <SelectItem value="4:3"><AspectRatioSelectItemContent value="4:3" /></SelectItem>
-                  <SelectItem value="3:4"><AspectRatioSelectItemContent value="3:4" /></SelectItem>
-                  <SelectItem value="3:2"><AspectRatioSelectItemContent value="3:2" /></SelectItem>
-                  <SelectItem value="2:3"><AspectRatioSelectItemContent value="2:3" /></SelectItem>
+                  {RATIO_OPTIONS.map((ratio) => (
+                    <SelectItem key={ratio} value={ratio}>
+                      <AspectRatioSelectItemContent value={ratio} />
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

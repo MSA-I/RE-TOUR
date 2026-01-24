@@ -605,6 +605,8 @@ export default function ProjectDetail() {
       setActiveTab("floor-plan-uploads");
     } else if (tabParam === "floor-plan-jobs") {
       setActiveTab("floor-plan-jobs");
+    } else if (tabParam && VALID_TABS.includes(tabParam)) {
+      setActiveTab(tabParam);
     }
     
     // Select job from URL param
@@ -2241,14 +2243,14 @@ export default function ProjectDetail() {
             />
           </TabsContent>
 
-          {/* Multi-Image Panorama Tab (Experimental) */}
-          <TabsContent value="multi-image-panorama" className="space-y-6">
-            <MultiImagePanoramaTab
-              projectId={id!}
-              creationsAttachments={multiPanoramaAttachments}
-              onClearAttachments={() => setMultiPanoramaAttachments([])}
-            />
-          </TabsContent>
+             {/* Multi-Image Panorama Tab */}
+             <TabsContent value="multi-image-panorama" className="space-y-6">
+               <MultiImagePanoramaTab
+                 projectId={id!}
+                 creationsAttachments={multiPanoramaAttachments}
+                 onClearAttachments={() => setMultiPanoramaAttachments([])}
+               />
+             </TabsContent>
         </Tabs>
 
       {/* Preview Dialog */}
