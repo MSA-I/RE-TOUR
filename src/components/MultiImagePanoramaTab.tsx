@@ -248,15 +248,6 @@ const JobCard = memo(function JobCard({
                   <div className="flex gap-2">
                     <Button 
                       size="sm" 
-                      variant="outline" 
-                      className="h-7 text-[10px]"
-                      onClick={() => setCompareOpen(true)}
-                    >
-                      <Columns className="h-3 w-3 mr-1" />
-                      Compare
-                    </Button>
-                    <Button 
-                      size="sm" 
                       variant="ghost" 
                       className="h-7 text-[10px]"
                       onClick={() => onOpenTerminal(job.id)}
@@ -266,21 +257,35 @@ const JobCard = memo(function JobCard({
                     </Button>
                   </div>
                 </div>
-                <div 
-                  className="relative aspect-[2/1] rounded border overflow-hidden cursor-pointer group"
-                  onClick={onViewOutput}
-                >
-                  <img
-                    src={outputPreview}
-                    alt="Generated panorama"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <Maximize2 className="h-6 w-6 text-white" />
-                  </div>
-                  <Badge className="absolute bottom-2 left-2 bg-green-600/80 text-white text-xs">
-                    Evidence-Based
-                  </Badge>
+                
+                {/* Primary Result View: Inline Compare Slider */}
+                <div className="rounded-lg border overflow-hidden bg-background">
+                  {primaryInputId && inputPreviews[primaryInputId] ? (
+                    <BeforeAfterSlider 
+                      beforeImage={inputPreviews[primaryInputId]} 
+                      afterImage={outputPreview}
+                      beforeLabel="Primary Source"
+                      afterLabel="Result"
+                      allowFullscreen={true}
+                    />
+                  ) : (
+                    <div 
+                      className="relative aspect-[2/1] cursor-pointer group"
+                      onClick={onViewOutput}
+                    >
+                      <img
+                        src={outputPreview}
+                        alt="Generated panorama"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Maximize2 className="h-6 w-6 text-white" />
+                      </div>
+                      <Badge className="absolute bottom-2 left-2 bg-green-600/80 text-white text-xs">
+                        Result
+                      </Badge>
+                    </div>
+                  )}
                 </div>
               </>
             )}

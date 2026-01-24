@@ -47,6 +47,73 @@ interface ChangeSuggestionsPanelProps {
 
 const STYLE_TRANSFER_PROMPT = `Apply the overall style (materials, color palette, lighting mood, furniture language) from the selected reference(s) to the panorama while keeping the layout, perspective, camera angle, and all architectural elements unchanged. Preserve the room geometry exactly as it is.`;
 
+const PANORAMA_STITCHING_SUGGESTIONS = [
+  {
+    id: "pano_1",
+    category: "panorama_stitching",
+    title: "Seamless Merge",
+    prompt: "Merge two or more panoramas into one seamless panorama, resolving all overlaps perfectly.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_2",
+    category: "panorama_stitching",
+    title: "Unified Stitch",
+    prompt: "Stitch multiple panoramas into a single unified panorama with consistent geometry.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_3",
+    category: "panorama_stitching",
+    title: "Align Edges",
+    prompt: "Align panorama edges and seams to ensure perfect continuity between source images.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_4",
+    category: "panorama_stitching",
+    title: "Blend Overlaps",
+    prompt: "Blend overlapping areas between panoramas to create invisible transitions.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_5",
+    category: "panorama_stitching",
+    title: "Fix Artifacts",
+    prompt: "Fix stitching artifacts such as visible seams, ghosting, or misalignment.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_6",
+    category: "panorama_stitching",
+    title: "Normalize Exposure",
+    prompt: "Normalize exposure and color consistency between all source panoramas.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_7",
+    category: "panorama_stitching",
+    title: "Correct Horizon",
+    prompt: "Correct horizon alignment across merged panoramas to ensure a level view.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: "pano_8",
+    category: "panorama_stitching",
+    title: "Optimize Geometry",
+    prompt: "Optimize stitching order for best geometric continuity and structural integrity.",
+    is_generated: false,
+    created_at: new Date().toISOString()
+  }
+];
+
 function ChangeSuggestionsPanelComponent({ 
   onSelectSuggestion, 
   hasDesignRefs = false,
@@ -60,7 +127,7 @@ function ChangeSuggestionsPanelComponent({
   context
 }: ChangeSuggestionsPanelProps) {
   const {
-    suggestions,
+    suggestions: fetchedSuggestions,
     categories,
     isLoading,
     isGenerating,
@@ -73,6 +140,10 @@ function ChangeSuggestionsPanelComponent({
   
   // Force "edits" mode and hide tabs if context is multi_image_panorama
   const isMultiPano = context === "multi_image_panorama";
+  
+  // Use hardcoded suggestions as fallback/override for strict context safety
+  // This ensures no design suggestions ever leak into this tab
+  const suggestions = isMultiPano ? PANORAMA_STITCHING_SUGGESTIONS : fetchedSuggestions;
   
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -208,9 +279,14 @@ function ChangeSuggestionsPanelComponent({
     lighting: "Lighting",
     decor: "Decor",
     atmosphere: "Atmosphere",
+    panorama_stitching: "Panorama Stitching",
   };
 
   const filteredSuggestions = suggestions.filter((s) => {
+    // Strict filtering for multi_image_panorama context
+    if (context === "multi_image_panorama" && s.category !== "panorama_stitching") {
+      return false;
+    }
     if (selectedCategory !== "all" && s.category !== selectedCategory) return false;
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -238,6 +314,8 @@ function ChangeSuggestionsPanelComponent({
           </TabsList>
         </Tabs>
       )}
+
+
 
       {mode === "style_transfer" && !isMultiPano ? (
         /* Style Transfer Mode */
