@@ -1,0 +1,292 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Virtual Tour Orchestrator - Dark/Light Admin Dashboard Design System */
+
+@layer base {
+  /* Dark theme (default) */
+  :root,
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 13%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 13%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 173 80% 40%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 173 58% 26%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 50% 55%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 22%;
+    --input: 217 33% 22%;
+    --ring: 173 80% 40%;
+
+    --radius: 0.5rem;
+
+    /* Status colors */
+    --status-queued: 220 14% 50%;
+    --status-running: 45 93% 47%;
+    --status-needs-review: 280 60% 65%;
+    --status-approved: 142 71% 45%;
+    --status-rejected: 0 50% 58%;
+    --status-failed: 0 50% 55%;
+    --status-draft: 215 20% 50%;
+    --status-active: 173 80% 40%;
+    --status-completed: 142 71% 45%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(173 80% 40%) 0%, hsl(173 60% 30%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(222 47% 14%) 0%, hsl(222 47% 12%) 100%);
+    --gradient-subtle: linear-gradient(135deg, hsl(217 33% 17% / 0.5) 0%, hsl(222 47% 11% / 0.8) 100%);
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+    --shadow-glow: 0 0 20px hsl(173 80% 40% / 0.2);
+
+    --sidebar-background: 222 47% 9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 173 80% 40%;
+    --sidebar-primary-foreground: 222 47% 11%;
+    --sidebar-accent: 217 33% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 20%;
+    --sidebar-ring: 173 80% 40%;
+  }
+
+  /* Light theme - Premium architectural studio feel, calm and technical */
+  .light {
+    /* Backgrounds: warm light gray, no pure white */
+    --background: 213 18% 96%;          /* #F4F6F8 */
+    --foreground: 210 27% 16%;          /* #1F2933 graphite black */
+
+    --card: 220 20% 98%;                /* #FAFBFC soft off-white */
+    --card-foreground: 210 27% 16%;     /* #1F2933 */
+
+    --popover: 220 20% 98%;             /* #FAFBFC */
+    --popover-foreground: 210 27% 16%;  /* #1F2933 */
+
+    /* Primary brand accent: desaturated teal #2FB9A6 */
+    --primary: 171 61% 46%;             /* #2FB9A6 */
+    --primary-foreground: 0 0% 100%;    /* white text */
+
+    --secondary: 213 18% 93%;           /* #E8EBEF section surfaces */
+    --secondary-foreground: 210 27% 16%;
+
+    --muted: 213 18% 93%;               /* #E8EBEF */
+    --muted-foreground: 215 14% 40%;    /* #5A6675 muted slate */
+
+    /* Accent for selected states: teal with 12% opacity feel */
+    --accent: 171 40% 92%;              /* rgba(47,185,166,0.12) equivalent */
+    --accent-foreground: 171 52% 38%;   /* #249C8C hover teal */
+
+    /* Destructive: muted red #C45858 */
+    --destructive: 0 50% 56%;           /* #C45858 */
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders: #D6DBE1 */
+    --border: 213 15% 85%;              /* #D6DBE1 */
+    --input: 213 15% 88%;
+    --ring: 171 61% 46%;                /* #2FB9A6 */
+
+    --radius: 0.5rem;
+
+    /* Status colors: muted, no aggressive saturation */
+    --status-queued: 215 14% 40%;       /* muted slate */
+    --status-running: 40 65% 48%;       /* #C98A2E warning amber */
+    --status-needs-review: 280 40% 55%;
+    --status-approved: 160 52% 36%;     /* #2E8B74 muted success */
+    --status-rejected: 0 50% 56%;       /* #C45858 muted error */
+    --status-failed: 0 50% 56%;         /* #C45858 */
+    --status-draft: 215 14% 50%;
+    --status-active: 171 61% 46%;       /* #2FB9A6 */
+    --status-completed: 160 52% 36%;    /* #2E8B74 */
+
+    /* Gradients - very subtle */
+    --gradient-primary: linear-gradient(135deg, hsl(171 61% 46%) 0%, hsl(171 52% 38%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(220 20% 98%) 0%, hsl(213 18% 96%) 100%);
+    --gradient-subtle: linear-gradient(135deg, hsl(213 18% 93% / 0.6) 0%, hsl(213 18% 96% / 0.9) 100%);
+
+    /* Shadows: very soft elevation, no heavy shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(31, 41, 51, 0.04);
+    --shadow-md: 0 6px 18px rgba(31, 41, 51, 0.06);
+    --shadow-lg: 0 8px 24px rgba(31, 41, 51, 0.08);
+    --shadow-glow: 0 0 20px hsl(171 61% 46% / 0.1);
+
+    --sidebar-background: 213 18% 93%;  /* #E8EBEF */
+    --sidebar-foreground: 210 27% 16%;  /* #1F2933 */
+    --sidebar-primary: 171 61% 46%;     /* #2FB9A6 */
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 213 15% 90%;
+    --sidebar-accent-foreground: 210 27% 16%;
+    --sidebar-border: 213 15% 85%;      /* #D6DBE1 */
+    --sidebar-ring: 171 61% 46%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Custom scrollbar for dark theme */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+@layer components {
+  /* Status badge variants */
+  .status-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .status-queued {
+    @apply bg-status-queued/20 text-status-queued;
+  }
+
+  .status-running {
+    @apply bg-status-running/20 text-status-running;
+  }
+
+  .status-needs-review {
+    @apply bg-status-needs-review/20 text-status-needs-review;
+  }
+
+  .status-approved {
+    @apply bg-status-approved/20 text-status-approved;
+  }
+
+  .status-rejected {
+    @apply bg-status-rejected/20 text-status-rejected;
+  }
+
+  .status-failed {
+    @apply bg-status-failed/20 text-status-failed;
+  }
+
+  .status-draft {
+    @apply bg-status-draft/20 text-status-draft;
+  }
+
+  .status-active {
+    @apply bg-status-active/20 text-status-active;
+  }
+
+  .status-completed {
+    @apply bg-status-completed/20 text-status-completed;
+  }
+
+  /* Glass card effect */
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-sm border border-border/50 shadow-md;
+  }
+
+  /* Glow effect on hover */
+  .glow-hover {
+    @apply transition-shadow duration-300;
+  }
+
+  .glow-hover:hover {
+    box-shadow: var(--shadow-glow);
+  }
+}
+
+@layer utilities {
+  /* Animation utilities */
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-pulse-subtle {
+    animation: pulseSubtle 2s infinite;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes pulseSubtle {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 2s ease-in-out infinite;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--primary)) 0%,
+      hsl(var(--primary) / 0.6) 50%,
+      hsl(var(--primary)) 100%
+    );
+    background-size: 200% 100%;
+  }
+}
