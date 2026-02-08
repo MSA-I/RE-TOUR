@@ -1,0 +1,184 @@
+project_id = "pyswjfcqirszxelrsotw"
+
+[functions.store-qa-attempt-feedback]
+verify_jwt = false
+
+[functions.create-signed-upload-url]
+verify_jwt = false
+
+[functions.create-signed-view-url]
+verify_jwt = false
+
+[functions.create-signed-download-url]
+verify_jwt = false
+
+[functions.start-render-job]
+verify_jwt = false
+
+[functions.generate-style-bible]
+verify_jwt = false
+
+[functions.compose-final-prompt]
+verify_jwt = false
+
+[functions.delete-upload]
+verify_jwt = false
+
+[functions.get-change-suggestions]
+verify_jwt = false
+
+[functions.help-chatbot]
+verify_jwt = false
+
+[functions.start-batch-job]
+verify_jwt = false
+
+[functions.run-pipeline-step]
+verify_jwt = false
+
+[functions.attach-pipeline-output]
+verify_jwt = false
+
+[functions.get-pipeline-suggestions]
+verify_jwt = false
+
+[functions.optimize-pipeline-prompt]
+verify_jwt = false
+
+[functions.reset-floorplan-pipeline]
+verify_jwt = false
+
+[functions.compose-pipeline-prompt]
+verify_jwt = false
+
+[functions.run-multi-image-panorama]
+verify_jwt = false
+
+[functions.start-image-edit-job]
+verify_jwt = false
+
+[functions.run-spatial-decomposition]
+verify_jwt = false
+
+[functions.run-room-camera-batch]
+verify_jwt = false
+
+[functions.run-room-panorama]
+verify_jwt = false
+
+[functions.run-global-qa]
+verify_jwt = false
+
+[functions.run-detect-spaces]
+verify_jwt = false
+
+[functions.run-space-render]
+verify_jwt = false
+
+[functions.run-space-panorama]
+verify_jwt = false
+
+[functions.run-merge-360]
+verify_jwt = false
+
+[functions.run-qa-check]
+verify_jwt = false
+
+[functions.run-space-analysis]
+verify_jwt = false
+
+[functions.run-style-analysis]
+verify_jwt = false
+
+[functions.image-io-service]
+verify_jwt = false
+
+[functions.run-info-worker]
+verify_jwt = false
+
+[functions.run-comparison-worker]
+verify_jwt = false
+
+[functions.run-supervisor]
+verify_jwt = false
+
+[functions.retry-pipeline-step]
+verify_jwt = false
+
+[functions.run-reject-and-retry]
+verify_jwt = false
+
+[functions.run-advance-pipeline]
+verify_jwt = false
+
+[functions.run-batch-space-renders]
+verify_jwt = false
+
+[functions.run-batch-space-panoramas]
+verify_jwt = false
+
+[functions.run-batch-space-merges]
+verify_jwt = false
+
+[functions.run-qa-retry-engine]
+verify_jwt = false
+
+[functions.run-logical-qa]
+verify_jwt = false
+
+[functions.approve-pipeline-step-manually]
+verify_jwt = false
+
+[functions.get-pipeline-step-attempts]
+verify_jwt = false
+
+[functions.continue-pipeline-step]
+verify_jwt = false
+
+[functions.confirm-camera-plan]
+verify_jwt = false
+
+[functions.store-qa-feedback]
+verify_jwt = false
+
+[functions.get-qa-learning-context]
+verify_jwt = false
+
+[functions.delete-pipeline-run]
+verify_jwt = false
+
+[functions.run-camera-scan]
+verify_jwt = false
+
+[functions.restart-pipeline-step]
+verify_jwt = false
+
+[functions.analyze-rejection]
+verify_jwt = false
+
+[functions.cleanup-camera-scan-crops]
+verify_jwt = false
+
+[functions.create-camera-anchor]
+verify_jwt = false
+
+[functions.rollback-to-previous-step]
+verify_jwt = false
+
+[functions.reset-camera-point-crop]
+verify_jwt = false
+
+[functions.run-single-space-renders]
+verify_jwt = false
+
+[functions.get-opposite-view-template]
+verify_jwt = false
+
+[functions.admin-templates]
+verify_jwt = false
+
+[functions.populate-space-after-renders]
+verify_jwt = false
+
+[functions.langfuse-test]
+verify_jwt = false
