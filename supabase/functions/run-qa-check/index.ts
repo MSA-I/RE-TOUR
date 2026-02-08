@@ -1107,7 +1107,7 @@ serve(async (req) => {
     // ═══════════════════════════════════════════════════════════════════════════
     // FETCH LEARNING CONTEXT + HUMAN FEEDBACK MEMORY (MANDATORY)
     // ═══════════════════════════════════════════════════════════════════════════
-    const effectiveStepId = step_id || (qa_type === "render" ? 4 : qa_type === "panorama" ? 5 : 6);
+    const effectiveStepId = step_id || (qa_type === "render" ? 5 : qa_type === "panorama" ? 6 : 7);
     
     // LEGACY: Fetch policy rules, similar cases, calibration stats
     const learningContext = await fetchLearningContext(serviceClient, userId, project_id, effectiveStepId);

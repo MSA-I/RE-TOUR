@@ -82,13 +82,14 @@ function getDownscaleFactor(base64: string, maxDimension: number): { needsDownsc
 }
 
 /**
- * Downscale image using Gemini API itself as a preprocessor
- * This is a workaround since Edge Functions don't have Canvas/ImageMagick
- * 
- * For now, we log the need for downscaling and rely on:
- * 1. Aggressive memory cleanup (nulling variables)
- * 2. Limiting design reference count
- * 3. Future: implement server-side resize via separate edge function
+ * Log downscaling diagnostics for image processing
+ *
+ * NOTE: Actual server-side downscaling is now implemented at image load time
+ * (see lines 1626-1680) using Supabase Storage transformations.
+ * This function remains for diagnostic logging of images that would need downscaling.
+ *
+ * Steps 1-4 automatically apply downscaling via storage transformations to prevent
+ * memory exhaustion in the Edge Function environment.
  */
 function logDownscaleCheck(base64: string, maxDimension: number, label: string): void {
   const check = getDownscaleFactor(base64, maxDimension);
@@ -1624,15 +1625,104 @@ serve(async (req) => {
     const inputSignedUrl = signedUrlData.signedUrl;
 
     logMemory("before-load-input");
-    
-    // Download image bytes directly - NO server-side downscaling (exceeds memory limits)
-    const imageResponse = await fetch(signedUrlData.signedUrl);
+
+    // ═══════════════════════════════════════════════════════════════
+    // AGGRESSIVE SERVER-SIDE IMAGE DOWNSCALING (Steps 1-4)
+    // ═══════════════════════════════════════════════════════════════
+    // CRITICAL: Apply aggressive compression BEFORE loading into memory
+    // to prevent "Memory limit exceeded" errors in Edge Function environment.
+    //
+    // Strategy: Much more aggressive than client-side compression
+    // - Target: 1600px max (vs 2400px client-side)
+    // - Quality: 60 (vs 80 client-side)
+    // - Reason: Server memory is MORE limited than client browser
+    // ═══════════════════════════════════════════════════════════════
+
+    let imageUrl = signedUrlData.signedUrl;
+    let shouldDownscale = currentStep >= 1 && currentStep <= 4;
+
+    // For Steps 1-4, apply AGGRESSIVE image transformation
+    if (shouldDownscale) {
+      console.log(`[IMAGE_DOWNSCALE] Step ${currentStep}: Applying AGGRESSIVE server-side downscaling`);
+      console.log(`[IMAGE_DOWNSCALE] Original URL: ${imageUrl.substring(0, 120)}...`);
+
+      const url = new URL(imageUrl);
+
+      // AGGRESSIVE parameters to ensure memory safety
+      url.searchParams.set('width', '1600');      // Reduced from 2400 to 1600
+      url.searchParams.set('height', '1600');     // Also limit height
+      url.searchParams.set('quality', '60');      // Reduced from 80 to 60
+      url.searchParams.set('format', 'webp');     // WebP for better compression
+
+      imageUrl = url.toString();
+      console.log(`[IMAGE_DOWNSCALE] Transformed URL: ${imageUrl.substring(0, 120)}...`);
+      console.log(`[IMAGE_DOWNSCALE] Transformations: width=1600, height=1600, quality=60, format=webp`);
+    }
+
+    // Download image bytes (with transformations applied if Step 1-4)
+    console.log(`[IMAGE_DOWNSCALE] Fetching image...`);
+    const imageResponse = await fetch(imageUrl);
+
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`);
+    }
+
+    // Check Content-Length header to verify size before loading
+    const contentLength = imageResponse.headers.get('content-length');
+    if (contentLength) {
+      const sizeMB = parseInt(contentLength) / 1024 / 1024;
+      console.log(`[IMAGE_DOWNSCALE] Content-Length: ${sizeMB.toFixed(2)}MB`);
+
+      // HARD LIMIT: Reject images > 15MB even after transformation
+      if (sizeMB > 15) {
+        throw new Error(
+          `Image too large: ${sizeMB.toFixed(2)}MB (max 15MB). ` +
+          `Storage transformations may not be enabled. ` +
+          `Enable image transformations in Supabase Storage settings.`
+        );
+      }
+    }
+
     const imageBuffer = (await imageResponse.arrayBuffer()) as ArrayBuffer;
     const imageBytes: Uint8Array = new Uint8Array(imageBuffer);
 
-    // Encode directly to base64
+    // Log actual downloaded size
+    const imageSizeMB = (imageBytes.length / 1024 / 1024).toFixed(2);
+    console.log(`[IMAGE_DOWNSCALE] Downloaded: ${imageSizeMB}MB (${imageBytes.length} bytes)`);
+
+    // CRITICAL CHECK: If image is still too large, transformations didn't work
+    if (imageBytes.length > 15 * 1024 * 1024 && shouldDownscale) {
+      console.error(`[IMAGE_DOWNSCALE] CRITICAL: Image is ${imageSizeMB}MB after transformation!`);
+      console.error(`[IMAGE_DOWNSCALE] Storage transformations are NOT working.`);
+      console.error(`[IMAGE_DOWNSCALE] Please enable image transformations in Supabase Storage.`);
+      throw new Error(
+        `Image transformations failed: Downloaded ${imageSizeMB}MB (expected < 15MB). ` +
+        `Enable image transformations in your Supabase Storage bucket settings. ` +
+        `Go to Storage → Select bucket → Settings → Enable "Image Transformations".`
+      );
+    }
+
+    // Encode to base64
     let base64Image = encodeBase64FromBytes(imageBytes);
-    
+    const base64SizeMB = (base64Image.length * 0.75 / 1024 / 1024).toFixed(2);
+    console.log(`[IMAGE_DOWNSCALE] Base64: ${base64SizeMB}MB (${base64Image.length} chars)`);
+
+    // Verify dimensions after downscaling
+    const dims = getImageDimensions(base64Image);
+    if (dims) {
+      console.log(`[IMAGE_DOWNSCALE] Dimensions: ${dims.width}×${dims.height} (${dims.format})`);
+
+      if (shouldDownscale) {
+        const longestSide = Math.max(dims.width, dims.height);
+        if (longestSide > 1800) {
+          console.warn(`[IMAGE_DOWNSCALE] ⚠️  Image still large: ${longestSide}px (expected ≤1600px)`);
+          console.warn(`[IMAGE_DOWNSCALE] ⚠️  Transformations may not be enabled or URL params ignored`);
+        } else {
+          console.log(`[IMAGE_DOWNSCALE] ✅ Successfully downscaled to ${longestSide}px`);
+        }
+      }
+    }
+
     logMemory("after-base64-input");
 
     // Get prompt for current step
@@ -1903,16 +1993,45 @@ Transform the visual design style by borrowing from the reference images while p
           const { data: refSignedUrl } = await supabaseAdmin.storage
             .from(refUpload.bucket)
             .createSignedUrl(refUpload.path, 3600);
-          
+
           if (refSignedUrl?.signedUrl) {
-            const refResponse = await fetch(refSignedUrl.signedUrl);
+            // Apply AGGRESSIVE downscaling to reference images
+            let refUrl = refSignedUrl.signedUrl;
+            if (currentStep >= 1 && currentStep <= 4) {
+              const url = new URL(refUrl);
+              url.searchParams.set('width', '1600');     // Aggressive: 1600px
+              url.searchParams.set('height', '1600');    // Also limit height
+              url.searchParams.set('quality', '60');      // Aggressive: 60 quality
+              url.searchParams.set('format', 'webp');     // WebP compression
+              refUrl = url.toString();
+              console.log(`[IMAGE_DOWNSCALE] Ref ${referenceImagesBase64.length + 1}: Applying transformations (1600px, q60, webp)`);
+            }
+
+            const refResponse = await fetch(refUrl);
+
+            // Check size before loading
+            const refContentLength = refResponse.headers.get('content-length');
+            if (refContentLength) {
+              const refSizeMB = parseInt(refContentLength) / 1024 / 1024;
+              if (refSizeMB > 15) {
+                console.warn(`[IMAGE_DOWNSCALE] ⚠️  Skipping ref ${referenceImagesBase64.length + 1}: ${refSizeMB.toFixed(2)}MB (too large)`);
+                continue; // Skip this reference image
+              }
+            }
+
             const refBuffer = (await refResponse.arrayBuffer()) as ArrayBuffer;
             const refBytes: Uint8Array = new Uint8Array(refBuffer);
 
-            // NOTE: Server-side downscaling removed (exceeds memory limits)
-            // Refs are loaded at original size - limit count instead for 4K runs
+            // Double-check actual size
+            const refSizeMB = (refBytes.length / 1024 / 1024).toFixed(2);
+            console.log(`[IMAGE_DOWNSCALE] Ref ${referenceImagesBase64.length + 1}: ${refSizeMB}MB`);
+
+            if (refBytes.length > 15 * 1024 * 1024) {
+              console.warn(`[IMAGE_DOWNSCALE] ⚠️  Skipping ref ${referenceImagesBase64.length + 1}: ${refSizeMB}MB (exceeds 15MB limit)`);
+              continue; // Skip if too large
+            }
+
             const refBase64 = encodeBase64FromBytes(refBytes);
-            
             referenceImagesBase64.push(refBase64);
             logMemory(`after-load-ref-${referenceImagesBase64.length}`);
           }
@@ -2228,8 +2347,11 @@ Transform the visual design style by borrowing from the reference images while p
         .update({ current_step_last_heartbeat_at: new Date().toISOString() })
         .eq("id", pipeline_id);
 
+      // Calculate attempt index BEFORE QA validation (needed for QA call)
+      const attemptIndex = (currentAutoAttempt || 0) + 1;
+
       // Run QA validation
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "qa_start", 
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "qa_start",
         `Running QA${outputLabel}...`, (currentStep - 1) * 25 + 17 + outputIndex);
 
       // Prefer signed URLs for QA to avoid holding BOTH input+output base64 in memory
@@ -2241,6 +2363,12 @@ Transform the visual design style by borrowing from the reference images while p
         { signedUrl: inputSignedUrl, base64: base64Image },
         { signedUrl: outputSignedUrl, base64: outputBase64 },
         currentStep,
+        pipeline_id,
+        pipeline.project_id,
+        user.id,
+        uploadRecord.id, // output_upload_id
+        attemptIndex,
+        authHeader!,
       );
 
       await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "qa_complete", 
@@ -2251,6 +2379,7 @@ Transform the visual design style by borrowing from the reference images while p
         output_upload_id: uploadRecord.id,
         qa_decision: qaResult.decision,
         qa_reason: qaResult.reason,
+        qa_score: qaResult.qa_score, // NEW: Numeric score (0-100) from run-qa-check
         // Store full QA result for detailed rejection UI
         qa_result_full: qaResult,
         // Individual check fields for backward compatibility
@@ -2276,8 +2405,8 @@ Transform the visual design style by borrowing from the reference images while p
       // ═══════════════════════════════════════════════════════════════════════
       // STORE ATTEMPT IN floorplan_pipeline_step_attempts FOR FULL PROMPT TRACEABILITY
       // The prompt_used in step_outputs is truncated, but this table stores the FULL prompt
+      // NOTE: attemptIndex is calculated earlier (before QA validation call)
       // ═══════════════════════════════════════════════════════════════════════
-      const attemptIndex = (currentAutoAttempt || 0) + 1;
       try {
         const { error: attemptError } = await supabaseAdmin
           .from("floorplan_pipeline_step_attempts")
@@ -2922,28 +3051,30 @@ Transform the visual design style by borrowing from the reference images while p
 
   } catch (error) {
     console.error("[run-pipeline-step] Pipeline step error:", error);
-    
+
     // Try to reset pipeline status back to pending on error
+    // Note: pipeline_id is already available in scope from request body parsing
     try {
-      const body = await req.clone().json().catch(() => ({}));
-      if (body.pipeline_id) {
+      // Don't use req.clone() - body was already consumed by req.json() earlier
+      // pipeline_id is already available from the main try block
+      if (typeof pipeline_id !== 'undefined' && pipeline_id) {
         const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
         const { data: pipeline } = await supabaseAdmin
           .from("floorplan_pipelines")
           .select("current_step, status")
-          .eq("id", body.pipeline_id)
+          .eq("id", pipeline_id)
           .maybeSingle();
-        
+
         if (pipeline && pipeline.status?.includes("running")) {
           await supabaseAdmin
             .from("floorplan_pipelines")
-            .update({ 
+            .update({
               status: `step${pipeline.current_step}_pending`,
               last_error: error instanceof Error ? error.message : "Unknown error",
               updated_at: new Date().toISOString()
             })
-            .eq("id", body.pipeline_id);
-          console.log(`[run-pipeline-step] Reset pipeline ${body.pipeline_id} to step${pipeline.current_step}_pending`);
+            .eq("id", pipeline_id);
+          console.log(`[run-pipeline-step] Reset pipeline ${pipeline_id} to step${pipeline.current_step}_pending`);
         }
       }
     } catch (resetError) {
@@ -3039,23 +3170,166 @@ interface QAResult {
   };
 }
 
+/**
+ * runQAValidation - NEW IMPLEMENTATION
+ * Delegates to run-qa-check Edge Function (Gemini-based with scoring)
+ * Replaces old OpenAI-based inline QA logic
+ */
 async function runQAValidation(
   input: QAImageInput,
   output: QAImageInput,
   stepNumber: number,
+  pipeline_id: string,
+  project_id: string,
+  user_id: string,
+  output_upload_id: string | null,
+  current_attempt: number,
+  authHeader: string,
 ): Promise<QAResult> {
   // EXPLICIT QA EXECUTION TRACKING - keep logs lightweight
   const qaStartTime = Date.now();
-  const inputSizeKb = input.base64 ? Math.round(input.base64.length / 1024) : null;
-  const outputSizeKb = output.base64 ? Math.round(output.base64.length / 1024) : null;
   console.log(
-    `[QA] Step ${stepNumber} started, input=${input.signedUrl ? "url" : `${inputSizeKb}KB`}, output=${output.signedUrl ? "url" : `${outputSizeKb}KB`}`,
+    `[QA] Step ${stepNumber} started (via run-qa-check Edge Function)`,
   );
-  
+
+  try {
+    // Call run-qa-check Edge Function (Gemini-based with scoring)
+    // This replaces the old OpenAI inline QA logic
+
+    console.log(`[QA] Preparing request to run-qa-check Edge Function`);
+    console.log(`[QA] Pipeline: ${pipeline_id}, Project: ${project_id}, Step: ${stepNumber}, Attempt: ${current_attempt}`);
+
+    // Build request payload for run-qa-check
+    // CRITICAL: run-qa-check only accepts qa_type: "render" | "panorama" | "merge"
+    // Map step numbers to valid qa_type values
+    let qaType: string;
+    if (stepNumber === 4) {
+      qaType = "panorama";
+    } else if (stepNumber === 7) {
+      qaType = "merge";
+    } else {
+      // Steps 1, 2, 3 all use "render" type (structural validation)
+      qaType = "render";
+    }
+
+    const qaCheckPayload: Record<string, unknown> = {
+      upload_id: output_upload_id,
+      qa_type: qaType,
+      step_id: stepNumber,
+      project_id: project_id,
+      asset_id: pipeline_id, // For auto-retry tracking
+      asset_type: "pipeline_step",
+      current_attempt: current_attempt,
+    };
+
+    console.log(`[QA] Mapped Step ${stepNumber} to qa_type: ${qaType}`);
+
+    console.log(`[QA] Calling run-qa-check: ${JSON.stringify(qaCheckPayload)}`);
+
+    // Add timeout to prevent QA from hanging indefinitely
+    const QA_TIMEOUT_MS = 120000; // 2 minutes max for QA
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), QA_TIMEOUT_MS);
+
+    let qaResponse: Response;
+    try {
+      qaResponse = await fetch(`${SUPABASE_URL}/functions/v1/run-qa-check`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify(qaCheckPayload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        console.error(`[QA] run-qa-check timed out after ${QA_TIMEOUT_MS}ms`);
+        return {
+          decision: "rejected",
+          reason: `QA timed out after ${QA_TIMEOUT_MS / 1000}s`,
+          qa_executed: false,
+          qa_score: null,
+        };
+      }
+      throw fetchError;
+    }
+
+    const qaEndTime = Date.now();
+    console.log(`[QA] run-qa-check completed in ${qaEndTime - qaStartTime}ms, status: ${qaResponse.status}`);
+
+    if (!qaResponse.ok) {
+      console.error(`[QA] run-qa-check returned ${qaResponse.status}`);
+      const errorText = await qaResponse.text();
+      console.error(`[QA] Error response: ${errorText.substring(0, 500)}`);
+
+      return {
+        decision: "rejected",
+        reason: `QA service error (${qaResponse.status})`,
+        qa_executed: false,
+        qa_score: null,
+      };
+    }
+
+    const qaResult = await qaResponse.json();
+    console.log(`[QA] run-qa-check result:`, JSON.stringify(qaResult, null, 2));
+
+    // Extract decision and score from run-qa-check response
+    const decision = qaResult.qa_decision || qaResult.decision || "rejected";
+    const score = qaResult.qa_score != null ? qaResult.qa_score : null;
+    const reasons = qaResult.reasons || [];
+    const reason = reasons.length > 0
+      ? reasons.map((r: { category?: string; short_reason?: string }) =>
+          r.category ? `[${r.category}] ${r.short_reason}` : r.short_reason
+        ).join("; ")
+      : (qaResult.summary || qaResult.reason || (decision === "approved" ? "All checks passed" : "QA check failed"));
+
+    console.log(`[QA] Final decision: ${decision}, score: ${score}, reason: ${reason.substring(0, 200)}`);
+
+    return {
+      decision,
+      reason,
+      qa_executed: true,
+      qa_score: score, // Numeric score (0-100) for display
+      reasons: reasons.map((r: { category?: string; short_reason?: string; code?: string }) => ({
+        code: r.code || r.category?.toUpperCase() || "UNKNOWN",
+        description: r.short_reason || "",
+      })),
+      raw_qa_result: qaResult,
+    };
+
+  } catch (error) {
+    const qaEndTime = Date.now();
+    console.error(`[QA] Step ${stepNumber} ERROR after ${qaEndTime - qaStartTime}ms:`, error);
+
+    return {
+      decision: "rejected",
+      reason: "QA validation error",
+      qa_executed: false,
+      qa_score: null,
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OLD INLINE QA LOGIC (DEPRECATED - KEPT FOR REFERENCE)
+// ═══════════════════════════════════════════════════════════════════════════
+// The code below was the old OpenAI-based inline QA logic.
+// It has been REPLACED by the run-qa-check Edge Function call above.
+// Keeping it commented for reference/rollback if needed.
+// ═══════════════════════════════════════════════════════════════════════════
+/*
+async function runQAValidationOLD(
+  input: QAImageInput,
+  output: QAImageInput,
+  stepNumber: number,
+): Promise<QAResult> {
   try {
     // Step-specific QA prompts with structural focus for Step 1
     let qaPrompt: string;
-    
+
     if (stepNumber === 1) {
       // ═══════════════════════════════════════════════════════════════════════════
       // STEP 1 QA: 2D Floor Plan → Top-Down 3D Render
@@ -3528,3 +3802,5 @@ Respond with ONLY valid JSON: {"decision": "approved" or "rejected", "reason": "
     return { decision: "rejected", reason: "QA validation error", qa_executed: false };
   }
 }
+*/
+// END OF OLD INLINE QA LOGIC

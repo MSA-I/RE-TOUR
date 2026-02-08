@@ -102,16 +102,37 @@ async function fetchImageAsBase64(supabase: any, uploadId: string): Promise<stri
   const { data: upload } = await supabase.from("uploads").select("*").eq("id", uploadId).single();
   if (!upload) throw new Error(`Upload not found: ${uploadId}`);
 
+  // Log file size for diagnostics
+  const fileSizeMB = (upload.size_bytes / (1024 * 1024)).toFixed(2);
+  console.log(`[fetchImageAsBase64] Downloading image: ${upload.original_filename} (${fileSizeMB} MB)`);
+
+  // MEMORY SAFETY: Reject excessively large files
+  const MAX_IMAGE_SIZE_MB = 15; // Conservative limit for Edge Function memory
+  if (upload.size_bytes > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+    throw new Error(
+      `Image file too large: ${fileSizeMB} MB (max ${MAX_IMAGE_SIZE_MB} MB). ` +
+      `Please resize the floor plan image before uploading.`
+    );
+  }
+
   const { data: fileData } = await supabase.storage.from(upload.bucket).download(upload.path);
   if (!fileData) throw new Error("Failed to download image");
 
   const arrayBuffer = await fileData.arrayBuffer();
   const uint8Array = new Uint8Array(arrayBuffer);
+
+  console.log(`[fetchImageAsBase64] Converting to base64: ${uint8Array.length} bytes`);
+
+  // Convert to base64 using more memory-efficient approach
   let binary = "";
   for (let i = 0; i < uint8Array.length; i++) {
     binary += String.fromCharCode(uint8Array[i]);
   }
-  return btoa(binary);
+
+  const base64 = btoa(binary);
+  console.log(`[fetchImageAsBase64] Base64 size: ${(base64.length / (1024 * 1024)).toFixed(2)} MB`);
+
+  return base64;
 }
 
 async function emitEvent(supabase: any, pipelineId: string, ownerId: string, stepNumber: number, type: string, message: string, progress: number) {
@@ -445,17 +466,30 @@ serve(async (req) => {
     }
 
     const imageBase64 = await fetchImageAsBase64(serviceClient, pipeline.floor_plan_upload_id);
+
+    // VALIDATION: Ensure base64 is valid
+    if (!imageBase64 || imageBase64.length < 100) {
+      console.error("[run-space-analysis] Invalid base64 image data");
+      throw new Error("Floor plan image could not be loaded or is corrupted. Please re-upload the image.");
+    }
+
     await emitEvent(serviceClient, pipeline_id, userId, 0, "info", "Analyzing floor plan structure...", 20);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MEMORY OPTIMIZATION: Flush Langfuse early before heavy operations
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log("[run-space-analysis] Flushing Langfuse before Gemini call to free memory...");
+    await flushLangfuse();
 
     // ═══════════════════════════════════════════════════════════════════════════
     // STEP 0.2: Space Analysis (Always runs)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     // Fetch prompt from Langfuse Prompt Management
     let spaceAnalysisPrompt = SPACE_ANALYSIS_PROMPT;
     let spacePromptVersion: string | undefined;
     let spacePromptSource: "langfuse_prompt_management" | "code" = "code";
-    
+
     if (isLangfuseEnabled()) {
       console.log(`[STEP 0.2] Fetching prompt: ${PROMPT_NAMES.SPACE_ANALYSIS} (label: production)`);
       const langfusePrompt = await fetchPrompt(PROMPT_NAMES.SPACE_ANALYSIS, "production");
@@ -469,6 +503,9 @@ serve(async (req) => {
       }
     }
 
+    // MEMORY OPTIMIZATION: Conservative token limit to prevent memory exhaustion
+    // 8K is more conservative and matches the original limit before issues
+    // Style analysis (Step 0.1) uses only 2K tokens successfully
     const spaceRequestParams = { temperature: 0.3, maxOutputTokens: 8192, responseMimeType: "application/json" };
     const geminiUrl = `${GEMINI_API_BASE}/${TEXT_ANALYSIS_MODEL}:generateContent?key=${API_NANOBANANA}`;
 
@@ -501,20 +538,51 @@ serve(async (req) => {
         imageCount: 1,
       },
       async () => {
+        // MEMORY DIAGNOSTICS: Log memory state before heavy operations
+        console.log(`[run-space-analysis] Starting Gemini API call...`);
+        console.log(`[run-space-analysis] Prompt length: ${spaceAnalysisPrompt.length} chars`);
+        console.log(`[run-space-analysis] Image base64 length: ${(imageBase64.length / 1024).toFixed(0)} KB`);
+
+        // VALIDATION: Check base64 is valid (should start with valid chars)
+        const base64Sample = imageBase64.substring(0, 50);
+        console.log(`[run-space-analysis] Base64 sample: ${base64Sample}...`);
+        if (!/^[A-Za-z0-9+/]/.test(imageBase64)) {
+          console.error("[run-space-analysis] Invalid base64 format detected");
+          throw new Error("Floor plan image encoding is invalid. Please re-upload the image.");
+        }
+
+        // Build request payload
+        const requestPayload = {
+          contents: [{
+            parts: [
+              { text: spaceAnalysisPrompt },
+              { inlineData: { mimeType: "image/jpeg", data: imageBase64 } },
+            ]
+          }],
+          generationConfig: spaceRequestParams,
+        };
+
+        console.log(`[run-space-analysis] Serializing request payload...`);
+        const requestBody = JSON.stringify(requestPayload);
+        const payloadSizeMB = (requestBody.length / (1024 * 1024)).toFixed(2);
+        console.log(`[run-space-analysis] Request payload size: ${payloadSizeMB} MB`);
+
+        // VALIDATION: Ensure payload is not malformed
+        if (requestBody.length < 1000) {
+          console.error("[run-space-analysis] Request payload is suspiciously small");
+          console.error("[run-space-analysis] Payload preview:", requestBody.substring(0, 500));
+          throw new Error("Request payload is malformed. Please try again.");
+        }
+
         // Call Gemini API
+        console.log(`[run-space-analysis] Sending request to Gemini...`);
         const geminiResponse = await fetch(geminiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: spaceAnalysisPrompt },
-                { inlineData: { mimeType: "image/jpeg", data: imageBase64 } },
-              ]
-            }],
-            generationConfig: spaceRequestParams,
-          }),
+          body: requestBody,
         });
+
+        console.log(`[run-space-analysis] Gemini response received: ${geminiResponse.status}`);
 
         if (!geminiResponse.ok) {
           const errorText = await geminiResponse.text();
@@ -523,9 +591,51 @@ serve(async (req) => {
         }
 
         const geminiData = await geminiResponse.json();
+
+        // CRITICAL: Log full response structure for debugging
+        console.log("[run-space-analysis] Gemini response structure:", JSON.stringify({
+          hasCandidates: !!geminiData.candidates,
+          candidatesLength: geminiData.candidates?.length,
+          hasContent: !!geminiData.candidates?.[0]?.content,
+          hasParts: !!geminiData.candidates?.[0]?.content?.parts,
+          partsLength: geminiData.candidates?.[0]?.content?.parts?.length,
+          finishReason: geminiData.candidates?.[0]?.finishReason,
+          promptFeedback: geminiData.promptFeedback,
+          usageMetadata: geminiData.usageMetadata,
+        }));
+
+        // Check for safety filters or other blocking reasons
+        if (geminiData.promptFeedback?.blockReason) {
+          console.error("[run-space-analysis] Prompt blocked by safety filter:", geminiData.promptFeedback);
+          throw new Error(`Gemini blocked request: ${geminiData.promptFeedback.blockReason}`);
+        }
+
         const content = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        
+        const finishReason = geminiData.candidates?.[0]?.finishReason;
+
         console.log(`[run-space-analysis] Response length: ${content.length}`);
+        console.log(`[run-space-analysis] Finish reason: ${finishReason}`);
+
+        // CRITICAL: Check for empty response BEFORE parsing
+        if (!content || content.trim().length === 0) {
+          console.error("[run-space-analysis] CRITICAL: Gemini returned empty content");
+          console.error("[run-space-analysis] Full response:", JSON.stringify(geminiData, null, 2).substring(0, 2000));
+          throw new Error(
+            `Gemini returned empty response. Finish reason: ${finishReason || "unknown"}. ` +
+            `Check if the image is valid and readable.`
+          );
+        }
+
+        // Log preview of response for debugging parse issues
+        const preview = content.length > 500 ? content.substring(0, 500) + "..." : content;
+        console.log(`[run-space-analysis] Response preview:`, preview);
+
+        // Warn about truncation but still attempt parsing (repair might succeed)
+        if (finishReason === "MAX_TOKENS") {
+          console.warn("[run-space-analysis] WARNING: Response truncated at token limit");
+          console.warn("[run-space-analysis] Token usage:", geminiData.usageMetadata);
+          console.warn("[run-space-analysis] Attempting JSON repair...");
+        }
 
         // Use robust JSON parsing with repair logic
         const parseResult = parseJsonFromLLM<{ rooms: unknown[]; zones: unknown[]; overall_notes?: string }>(
@@ -534,23 +644,47 @@ serve(async (req) => {
         );
         
         if (!parseResult.success) {
+          const wasTruncated = finishReason === "MAX_TOKENS";
           console.error("[run-space-analysis] JSON parse failed:", parseResult.error);
           console.error("[run-space-analysis] Error code:", parseResult.errorCode);
           console.error("[run-space-analysis] Raw response length:", content.length);
+          console.error("[run-space-analysis] Was truncated:", wasTruncated);
           if (parseResult.parsePosition) {
             console.error("[run-space-analysis] Parse failed at position:", parseResult.parsePosition);
+            // Show context around error position
+            const pos = parseResult.parsePosition;
+            const contextStart = Math.max(0, pos - 100);
+            const contextEnd = Math.min(content.length, pos + 100);
+            const errorContext = content.substring(contextStart, contextEnd);
+            console.error("[run-space-analysis] Error context:", errorContext);
           }
-          
+
+          // Log the extracted JSON that failed to parse
+          if (parseResult.extractedJson) {
+            const extractedPreview = parseResult.extractedJson.length > 1000
+              ? parseResult.extractedJson.substring(0, 1000) + "..."
+              : parseResult.extractedJson;
+            console.error("[run-space-analysis] Extracted JSON preview:", extractedPreview);
+          }
+
           // Build debug info for storage
           const debugInfo = buildParseDebugInfo(content, parseResult);
-          
+
           // Create error object with all debug data attached
-          const error = new Error(parseResult.error || "JSON parse failed");
-          (error as any).errorCode = parseResult.errorCode || "PARSE_FAILED";
+          let errorMessage = parseResult.error || "JSON parse failed";
+          if (wasTruncated) {
+            errorMessage = `${errorMessage} (Response was truncated at ${spaceRequestParams.maxOutputTokens} token limit - repair failed)`;
+          } else {
+            errorMessage = `${errorMessage}. The AI model returned malformed JSON. Please try again.`;
+          }
+
+          const error = new Error(errorMessage);
+          (error as any).errorCode = wasTruncated ? "TRUNCATED_PARSE_FAILED" : (parseResult.errorCode || "PARSE_FAILED");
           (error as any).rawResponse = content; // Full raw response, not truncated
           (error as any).extractedJson = parseResult.extractedJson;
           (error as any).debugInfo = debugInfo;
           (error as any).isParseError = true;
+          (error as any).wasTruncated = wasTruncated;
           throw error;
         }
         
@@ -567,6 +701,10 @@ serve(async (req) => {
     if (!spaceAnalysisResult.success || !spaceAnalysisResult.data) {
       throw spaceAnalysisResult.error || new Error("Space analysis failed");
     }
+
+    // MEMORY OPTIMIZATION: Flush Langfuse immediately after generation to free memory
+    console.log("[run-space-analysis] Generation complete, flushing Langfuse events...");
+    await flushLangfuse();
 
     const analysisData = spaceAnalysisResult.data;
     const rawRooms = analysisData.rooms || [];

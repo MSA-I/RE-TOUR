@@ -13,6 +13,16 @@ export const TRACE_NAMES = {
   PIPELINE_RUN: "pipeline_run",
 } as const;
 
+// ============= EVALUATOR GATING =============
+// Steps that support QA Judge evaluation (visual quality checks)
+// These steps generate images that need AFTER image + structural comparison
+export const QA_EVALUATABLE_STEPS = [1, 2, 4, 5, 6, 7] as const;
+
+// Steps that do NOT support QA Judge evaluation
+// Step 0: Space analysis (text-only, no renders to evaluate)
+// Step 3: Camera planning (metadata generation, not visual outputs)
+export const NON_QA_STEPS = [0, 3] as const;
+
 // ============= STEP 0: SPACE ANALYSIS (Two Sub-Steps) =============
 // Step 0.1: Design Reference Analysis (conditional - only if reference provided)
 // Step 0.2: Space Analysis (always runs)
@@ -219,13 +229,25 @@ export interface StandardMetadata {
   ab_bucket?: string;
 }
 
+/**
+ * Check if a step supports QA Judge evaluation
+ * Steps that generate visual outputs (images) need QA evaluation
+ * Steps that generate metadata/text do not
+ */
+export function stepSupportsQAEvaluation(stepNumber: number): boolean {
+  return (QA_EVALUATABLE_STEPS as readonly number[]).includes(stepNumber);
+}
+
 export function buildStandardMetadata(params: StandardMetadata): Record<string, unknown> {
   const metadata: Record<string, unknown> = {
     [METADATA_KEYS.PROJECT_ID]: params.project_id,
     [METADATA_KEYS.PIPELINE_ID]: params.pipeline_id,
     [METADATA_KEYS.STEP_NUMBER]: params.step_number,
   };
-  
+
+  // Add QA evaluation flag to help Langfuse evaluators gate correctly
+  metadata["supports_qa_evaluation"] = stepSupportsQAEvaluation(params.step_number);
+
   if (params.sub_step) metadata[METADATA_KEYS.SUB_STEP] = params.sub_step;
   if (params.room_id) metadata[METADATA_KEYS.ROOM_ID] = params.room_id;
   if (params.room_name) metadata[METADATA_KEYS.ROOM_NAME] = params.room_name;
@@ -235,7 +257,7 @@ export function buildStandardMetadata(params: StandardMetadata): Record<string, 
   if (params.prompt_name) metadata[METADATA_KEYS.PROMPT_NAME] = params.prompt_name;
   if (params.prompt_version) metadata[METADATA_KEYS.PROMPT_VERSION] = params.prompt_version;
   if (params.ab_bucket) metadata[METADATA_KEYS.AB_BUCKET] = params.ab_bucket;
-  
+
   return metadata;
 }
 

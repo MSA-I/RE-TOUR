@@ -477,30 +477,79 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         const { data: continueData, error: continueError } = await supabase.functions.invoke("continue-pipeline-step", {
           body: { pipeline_id: pipelineId, from_step: 0, from_phase: "space_analysis_complete" },
         });
+
+        // Enhanced error logging
+        console.log("[TOP_DOWN_3D_START] continue-pipeline-step response:", {
+          hasError: !!continueError,
+          errorType: continueError?.constructor?.name,
+          errorMessage: continueError?.message,
+          errorContext: continueError?.context,
+          hasData: !!continueData,
+          dataError: continueData?.error,
+          dataSuccess: continueData?.success,
+        });
+
         if (continueError) {
           console.error("[TOP_DOWN_3D_START] continue-pipeline-step error:", continueError);
-          throw continueError;
+          console.error("[TOP_DOWN_3D_START] Full error object:", JSON.stringify(continueError, null, 2));
+          throw new Error(`Phase transition failed: ${continueError.message || "Unknown error"}`);
         }
         if (continueData?.error) {
           console.error("[TOP_DOWN_3D_START] continue-pipeline-step returned error:", continueData.error);
-          throw new Error(continueData.error);
+          throw new Error(`Phase transition failed: ${continueData.error}`);
         }
-        console.log("[TOP_DOWN_3D_START] Phase advanced to top_down_3d_pending");
+        console.log("[TOP_DOWN_3D_START] ✓ Phase advanced to top_down_3d_pending");
       }
-      
+
       // Now run the actual step
       console.log("[TOP_DOWN_3D_START] Invoking run-pipeline-step for Step 1");
       const { data, error } = await supabase.functions.invoke("run-pipeline-step", {
         body: { pipeline_id: pipelineId, step_number: 1, whole_apartment_mode: true },
       });
+
+      // Enhanced error logging with response body extraction
+      console.log("[TOP_DOWN_3D_START] run-pipeline-step response:", {
+        hasError: !!error,
+        errorType: error?.constructor?.name,
+        errorMessage: error?.message,
+        errorContext: error?.context,
+        hasData: !!data,
+        dataError: data?.error,
+      });
+
       if (error) {
         console.error("[TOP_DOWN_3D_START] Edge function error:", error);
-        throw error;
+        console.error("[TOP_DOWN_3D_START] Full error object:", JSON.stringify(error, null, 2));
+
+        // CRITICAL: Try to extract the actual error message from the response
+        // The FunctionsHttpError doesn't expose the response body, but we might have it in data
+        let errorDetails = "Unknown error";
+        if (data?.error) {
+          errorDetails = data.error;
+        } else if (error.context instanceof Response) {
+          // Try to read the response body
+          try {
+            const responseText = await error.context.text();
+            console.error("[TOP_DOWN_3D_START] Response body:", responseText);
+            try {
+              const responseJson = JSON.parse(responseText);
+              errorDetails = responseJson.error || responseJson.message || responseText;
+            } catch {
+              errorDetails = responseText || "Unknown error";
+            }
+          } catch (readError) {
+            console.error("[TOP_DOWN_3D_START] Failed to read response body:", readError);
+          }
+        }
+
+        throw new Error(`Step 1 execution failed: ${errorDetails}`);
       }
       if (data?.error) {
         console.error("[TOP_DOWN_3D_START] Backend returned error:", data.error);
-        throw new Error(data.error);
+        throw new Error(`Step 1 execution failed: ${data.error}`);
       }
+
+      console.log("[TOP_DOWN_3D_START] ✓ Step 1 completed successfully");
       return data;
     },
     onSuccess: () => {
