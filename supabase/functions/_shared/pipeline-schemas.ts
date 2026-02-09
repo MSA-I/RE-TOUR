@@ -17,17 +17,17 @@
 
 export type ImageRole = "input" | "output" | "reference" | "preview";
 export type QualityTier = "1K" | "2K" | "4K";
-export type AspectRatio = "1:1" | "4:3" | "16:9" | "2:1";
+export type AspectRatio = "1:1" | "4:3" | "16:9" | "2:1" | "21:9";
 export type StepPhase = "pending" | "running" | "completed" | "failed" | "blocked";
 
-export type SpaceCategory = 
-  | "bathroom" 
-  | "bedroom" 
-  | "kitchen" 
-  | "living_room" 
+export type SpaceCategory =
+  | "bathroom"
+  | "bedroom"
+  | "kitchen"
+  | "living_room"
   | "dining_room"
-  | "corridor" 
-  | "balcony" 
+  | "corridor"
+  | "balcony"
   | "terrace"
   | "laundry"
   | "storage"
@@ -35,7 +35,7 @@ export type SpaceCategory =
   | "entrance"
   | "other";
 
-export type FailureType = 
+export type FailureType =
   | "schema_invalid"
   | "constraint_violation"
   | "quality_mismatch"
@@ -54,7 +54,7 @@ export type SupervisorDecision = "proceed" | "retry" | "block";
 export type Severity = "low" | "medium" | "high" | "critical";
 
 // QA Result Codes - specific failure types for AI-QA
-export type QAReasonCode = 
+export type QAReasonCode =
   | "INVALID_INPUT"
   | "MISSING_SPACE"
   | "DUPLICATED_OBJECTS"
@@ -77,7 +77,7 @@ export type QAReasonCode =
   | "UNKNOWN";
 
 // Retry suggestion types
-export type RetrySuggestionType = 
+export type RetrySuggestionType =
   | "prompt_delta"      // Modify prompt constraints
   | "settings_delta"    // Change generation settings
   | "seed_change"       // Different random seed
@@ -138,7 +138,7 @@ export const IMAGE_IO_OUTPUT_SCHEMA = {
       }
     },
     quality_used: { type: "string", enum: ["1K", "2K", "4K"] },
-    ratio_used: { type: "string", enum: ["1:1", "4:3", "16:9", "2:1"] },
+    ratio_used: { type: "string", enum: ["1:1", "4:3", "16:9", "2:1", "21:9"] },
     created_at: { type: "string", format: "date-time" }
   }
 };
@@ -189,8 +189,8 @@ export const INFO_WORKER_OUTPUT_SCHEMA = {
         properties: {
           space_id: { type: "string", pattern: "^space_[a-z0-9_]+$" },
           label: { type: "string", minLength: 1, maxLength: 100 },
-          category: { 
-            type: "string", 
+          category: {
+            type: "string",
             enum: ["bathroom", "bedroom", "kitchen", "living_room", "dining_room", "corridor", "balcony", "terrace", "laundry", "storage", "office", "entrance", "other"]
           },
           confidence: { type: "number", minimum: 0, maximum: 1 },
@@ -208,8 +208,8 @@ export const INFO_WORKER_OUTPUT_SCHEMA = {
             }
           },
           geometry_notes: { type: "string", maxLength: 500 },
-          ambiguity_flags: { 
-            type: "array", 
+          ambiguity_flags: {
+            type: "array",
             items: { type: "string", maxLength: 200 }
           }
         }
@@ -241,10 +241,10 @@ export interface ComparisonFix {
   priority: number;              // 1 = highest
 }
 
-export type RecommendedNextStep = 
-  | "proceed" 
-  | "retry_info" 
-  | "retry_generation" 
+export type RecommendedNextStep =
+  | "proceed"
+  | "retry_info"
+  | "retry_generation"
   | "block_for_human";
 
 export interface ComparisonWorkerOutput {
@@ -276,8 +276,8 @@ export const COMPARISON_WORKER_OUTPUT_SCHEMA = {
         required: ["type", "description", "severity"],
         additionalProperties: false,
         properties: {
-          type: { 
-            type: "string", 
+          type: {
+            type: "string",
             enum: ["schema_invalid", "constraint_violation", "quality_mismatch", "missing_space", "extra_space", "furniture_mismatch", "style_inconsistency", "geometry_error", "ambiguity_unresolved", "llm_contradiction", "timeout", "api_error"]
           },
           description: { type: "string", minLength: 1, maxLength: 500 },
@@ -302,8 +302,8 @@ export const COMPARISON_WORKER_OUTPUT_SCHEMA = {
         }
       }
     },
-    recommended_next_step: { 
-      type: "string", 
+    recommended_next_step: {
+      type: "string",
       enum: ["proceed", "retry_info", "retry_generation", "block_for_human"]
     },
     processing_time_ms: { type: "integer", minimum: 0 },
@@ -416,7 +416,7 @@ export const RULE_GATES = {
     MAX_ORIGINAL_SIZE_BYTES: 50 * 1024 * 1024,  // 50MB
     URL_EXPIRY_SECONDS: 3600,                    // 1 hour
     ALLOWED_MIME_TYPES: ["image/jpeg", "image/png", "image/webp"],
-    
+
     // Quality enforcement per step
     STEP_QUALITY_OVERRIDE: {
       0: "2K", // Space Analysis
@@ -425,7 +425,7 @@ export const RULE_GATES = {
       3: "2K", // Detect Spaces
       // Steps 4+ use user preference
     } as Record<number, QualityTier>,
-    
+
     // Dimension limits per quality tier
     QUALITY_DIMENSIONS: {
       "1K": { min: 800, max: 1200 },
@@ -433,7 +433,7 @@ export const RULE_GATES = {
       "4K": { min: 3600, max: 4200 }
     }
   },
-  
+
   // INFO WORKER RULES
   INFO_WORKER: {
     MIN_CONFIDENCE_THRESHOLD: 0.3,      // Below this = ambiguity flag required
@@ -442,7 +442,7 @@ export const RULE_GATES = {
     REQUIRED_AMBIGUITY_IF_LOW_CONFIDENCE: true,
     PROCESSING_TIMEOUT_MS: 60000        // 60 seconds
   },
-  
+
   // COMPARISON WORKER RULES
   COMPARISON_WORKER: {
     AUTO_BLOCK_SEVERITY: "critical",    // Critical failures = auto block
@@ -450,7 +450,7 @@ export const RULE_GATES = {
     REQUIRE_USER_REQUEST_ECHO: true,
     PROCESSING_TIMEOUT_MS: 30000        // 30 seconds
   },
-  
+
   // SUPERVISOR RULES
   SUPERVISOR: {
     MIN_CONSISTENCY_SCORE: 0.7,         // Below this = block for human
@@ -477,17 +477,17 @@ export const RULE_GATES = {
  */
 export function validateSchema(data: unknown, schema: object): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
-  
+
   try {
     // Basic type checking (full JSON Schema validation would use ajv library)
     if (typeof data !== 'object' || data === null) {
       errors.push("Data must be an object");
       return { valid: false, errors };
     }
-    
+
     const schemaObj = schema as any;
     const dataObj = data as Record<string, unknown>;
-    
+
     // Check required fields
     if (schemaObj.required) {
       for (const field of schemaObj.required) {
@@ -496,7 +496,7 @@ export function validateSchema(data: unknown, schema: object): { valid: boolean;
         }
       }
     }
-    
+
     // Check additionalProperties
     if (schemaObj.additionalProperties === false && schemaObj.properties) {
       const allowedKeys = Object.keys(schemaObj.properties);
@@ -506,7 +506,7 @@ export function validateSchema(data: unknown, schema: object): { valid: boolean;
         }
       }
     }
-    
+
     // Check for base64 in any string field (forbidden)
     const checkForBase64 = (obj: unknown, path: string): void => {
       if (typeof obj === 'string') {
@@ -519,9 +519,9 @@ export function validateSchema(data: unknown, schema: object): { valid: boolean;
         Object.entries(obj).forEach(([k, v]) => checkForBase64(v, `${path}.${k}`));
       }
     };
-    
+
     checkForBase64(data, 'root');
-    
+
     return { valid: errors.length === 0, errors };
   } catch (e) {
     errors.push(`Validation error: ${e instanceof Error ? e.message : 'Unknown'}`);
@@ -543,7 +543,7 @@ export function applyRuleGates(
   }
 ): RuleCheckResult[] {
   const results: RuleCheckResult[] = [];
-  
+
   // IMAGE I/O RULES
   if (context.images) {
     // Max images check
@@ -553,7 +553,7 @@ export function applyRuleGates(
       message: `${context.images.length}/${RULE_GATES.IMAGE_IO.MAX_IMAGES_PER_STEP} images`,
       blocked: context.images.length > RULE_GATES.IMAGE_IO.MAX_IMAGES_PER_STEP
     });
-    
+
     // Quality enforcement for steps 0-3
     const expectedQuality = RULE_GATES.IMAGE_IO.STEP_QUALITY_OVERRIDE[context.step_index];
     if (expectedQuality) {
@@ -564,7 +564,7 @@ export function applyRuleGates(
         blocked: false
       });
     }
-    
+
     // File size checks
     for (const img of context.images) {
       if (img.role === "preview" && img.filesize_bytes > RULE_GATES.IMAGE_IO.MAX_PREVIEW_SIZE_BYTES) {
@@ -577,7 +577,7 @@ export function applyRuleGates(
       }
     }
   }
-  
+
   // INFO WORKER RULES
   if (context.spaces) {
     // Max spaces check
@@ -587,7 +587,7 @@ export function applyRuleGates(
       message: `${context.spaces.length}/${RULE_GATES.INFO_WORKER.MAX_SPACES_PER_FLOORPLAN} spaces`,
       blocked: context.spaces.length > RULE_GATES.INFO_WORKER.MAX_SPACES_PER_FLOORPLAN
     });
-    
+
     // Low confidence must have ambiguity flags
     for (const space of context.spaces) {
       if (space.confidence < RULE_GATES.INFO_WORKER.MIN_CONFIDENCE_THRESHOLD) {
@@ -601,7 +601,7 @@ export function applyRuleGates(
       }
     }
   }
-  
+
   // COMPARISON WORKER RULES
   if (context.failures) {
     const criticalCount = context.failures.filter(f => f.severity === "critical").length;
@@ -611,7 +611,7 @@ export function applyRuleGates(
       message: `${criticalCount} critical failures`,
       blocked: criticalCount > 0
     });
-    
+
     results.push({
       rule_name: "max_failures_before_block",
       passed: context.failures.length <= RULE_GATES.COMPARISON_WORKER.MAX_FAILURES_BEFORE_BLOCK,
@@ -619,7 +619,7 @@ export function applyRuleGates(
       blocked: context.failures.length > RULE_GATES.COMPARISON_WORKER.MAX_FAILURES_BEFORE_BLOCK
     });
   }
-  
+
   // SUPERVISOR RULES
   if (context.retry_count !== undefined) {
     results.push({
@@ -629,7 +629,7 @@ export function applyRuleGates(
       blocked: context.retry_count >= RULE_GATES.SUPERVISOR.MAX_RETRIES_PER_STEP
     });
   }
-  
+
   if (context.consistency_score !== undefined) {
     results.push({
       rule_name: "consistency_threshold",
@@ -638,7 +638,7 @@ export function applyRuleGates(
       blocked: context.consistency_score < RULE_GATES.SUPERVISOR.MIN_CONSISTENCY_SCORE
     });
   }
-  
+
   return results;
 }
 
@@ -665,7 +665,7 @@ export const DB_FIELD_MAPPINGS = {
     error_message: "text",
     input_schema_hash: "text" // For deduplication
   },
-  
+
   // pipeline_runs table tracks orchestration state
   PIPELINE_RUNS: {
     id: "uuid PRIMARY KEY",

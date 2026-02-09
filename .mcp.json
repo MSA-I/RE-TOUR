@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "type": "stdio",
+      "command": "C:\\Users\\User\\.bun\\bin\\bun.exe",
+      "args": [
+        "C:\\Users\\User\\supabase-mcp\\dist\\index.js"
+      ],
+      "env": {
+        "SUPABASE_URL": "https://zturojwgqtjrxwsfbwqw.supabase.co",
+        "SUPABASE_ANON_KEY": "sb_publishable_W7uP2HoitkRKQuKKiTOHTg_XDH3dBET",
+        "SUPABASE_SERVICE_ROLE_KEY": "sbp_v0_9ae6bea5f03393255cff5ffb39fbc5d2bb4a2d43"
+      }
+    }
+  }
+}

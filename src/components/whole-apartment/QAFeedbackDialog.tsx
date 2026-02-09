@@ -74,7 +74,7 @@ export function QAFeedbackDialog({
   );
   const [reasonShort, setReasonShort] = useState("");
   const [qaWasWrong, setQaWasWrong] = useState(mode === "approve" && qaOriginalStatus === "rejected");
-  
+
   // Score state - REQUIRED field for QA feedback
   const [score, setScore] = useState<number | null>(initialScore);
   const [scoreInput, setScoreInput] = useState<string>(initialScore !== null ? String(initialScore) : "");
@@ -111,13 +111,13 @@ export function QAFeedbackDialog({
   const handleScoreChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 3);
     setScoreInput(val);
-    
+
     if (!val) {
       setScoreError(null);
       setScore(null);
       return;
     }
-    
+
     const num = parseInt(val, 10);
     if (num < 0 || num > 100) {
       setScoreError("Enter 0–100");
@@ -135,11 +135,11 @@ export function QAFeedbackDialog({
       return;
     }
     if (!reasonShort.trim()) return;
-    
+
     onSubmit({
       decision: mode === "approve" ? "approved" : "rejected",
       category,
-      reasonShort: reasonShort.trim().slice(0, 200),
+      reasonShort: reasonShort.trim().slice(0, 500),
       qaWasWrong,
       score,
     });
@@ -147,8 +147,8 @@ export function QAFeedbackDialog({
 
   const isValid = useMemo(() => {
     return (
-      reasonShort.trim().length >= 5 && 
-      reasonShort.trim().length <= 200 &&
+      reasonShort.trim().length >= 5 &&
+      reasonShort.trim().length <= 500 &&
       score !== null &&
       score >= 0 &&
       score <= 100
@@ -156,10 +156,10 @@ export function QAFeedbackDialog({
   }, [reasonShort, score]);
 
   const charCount = reasonShort.length;
-  const isOverLimit = charCount > 200;
+  const isOverLimit = charCount > 500;
 
   // Determine if this is a disagreement with AI-QA
-  const isDisagreement = 
+  const isDisagreement =
     (mode === "approve" && qaOriginalStatus === "rejected") ||
     (mode === "reject" && qaOriginalStatus === "approved");
 
@@ -202,8 +202,8 @@ export function QAFeedbackDialog({
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>Attempt #{attemptNumber}</span>
             {qaOriginalStatus && (
-              <Badge 
-                variant="outline" 
+              <Badge
+                variant="outline"
                 className={qaOriginalStatus === "approved" ? "border-primary/50" : "border-destructive/50"}
               >
                 AI-QA: {qaOriginalStatus}
@@ -256,17 +256,17 @@ export function QAFeedbackDialog({
                   </div>
                 )}
               </div>
-              
+
               {score !== null && !scoreError && (
-                <Badge 
-                  variant="outline" 
+                <Badge
+                  variant="outline"
                   className={cn("text-sm", getScoreLabel(score).color)}
                 >
                   {getScoreLabel(score).text}
                 </Badge>
               )}
             </div>
-            
+
             {/* Score recommendation */}
             {scoreRecommendation && (
               <p className={cn(
@@ -303,7 +303,7 @@ export function QAFeedbackDialog({
                 Feedback Note <span className="text-destructive">*</span>
               </Label>
               <span className={`text-xs ${isOverLimit ? "text-destructive" : "text-muted-foreground"}`}>
-                {charCount}/200
+                {charCount}/500
               </span>
             </div>
             <Textarea
@@ -316,7 +316,7 @@ export function QAFeedbackDialog({
               value={reasonShort}
               onChange={(e) => setReasonShort(e.target.value)}
               className="min-h-[80px] resize-none"
-              maxLength={210} // Slight buffer for UX
+              maxLength={510} // Slight buffer for UX
             />
             {reasonShort.length > 0 && reasonShort.length < 5 && (
               <p className="text-xs text-destructive">Minimum 5 characters required</p>

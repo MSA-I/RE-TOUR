@@ -28,6 +28,8 @@ import { StepRetryStatusIndicator, StepRetryState } from "@/components/whole-apa
 import { CameraPlanningEditor } from "@/components/whole-apartment/CameraPlanningEditor";
 import { StopResetStepButton } from "@/components/whole-apartment/StopResetStepButton";
 import { StepControlsFooter } from "@/components/whole-apartment/StepControlsFooter";
+import { Step2OutputsPanel } from "@/components/whole-apartment/Step2OutputsPanel";
+import { useStepAttempts } from "@/hooks/useStepAttempts";
 
 import { SpaceGraphSummary } from "@/components/whole-apartment/SpaceGraphSummary";
 import { PipelineDebugPanel } from "@/components/whole-apartment/PipelineDebugPanel";
@@ -148,9 +150,8 @@ function GlobalStepIndicator({ currentStep }: { currentStep: number }) {
             </div>
             {idx < WHOLE_APARTMENT_STEP_NAMES.length - 1 && (
               <div
-                className={`w-4 sm:w-8 h-0.5 mx-1 ${
-                  isComplete ? "bg-primary" : "bg-muted"
-                }`}
+                className={`w-4 sm:w-8 h-0.5 mx-1 ${isComplete ? "bg-primary" : "bg-muted"
+                  }`}
               />
             )}
           </div>
@@ -206,20 +207,20 @@ function formatItemType(itemType: string | undefined | null): string {
 }
 
 // Render a single space entry (room or zone)
-function SpaceEntryRow({ 
-  space, 
+function SpaceEntryRow({
+  space,
   index,
   isZone = false,
-}: { 
-  space: SpaceEntry; 
+}: {
+  space: SpaceEntry;
   index: number;
   isZone?: boolean;
 }) {
   return (
     <div className="border-b border-border/30 pb-2 last:border-b-0 last:pb-0">
       <div className="flex items-start gap-2 text-sm">
-        <Badge 
-          variant={isZone ? "outline" : "secondary"} 
+        <Badge
+          variant={isZone ? "outline" : "secondary"}
           className={cn("text-xs shrink-0", isZone && "bg-muted/50")}
         >
           {index + 1}
@@ -249,12 +250,12 @@ function SpaceEntryRow({
           <p className="text-xs text-muted-foreground">
             {space.classification_reason || space.reasoning}
           </p>
-          
+
           {/* Detected furniture/fixtures */}
           {space.detected_items && space.detected_items.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {space.detected_items.map((item, itemIdx) => (
-                <span 
+                <span
                   key={itemIdx}
                   className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-secondary/50 text-secondary-foreground"
                   title={item.note || undefined}
@@ -274,10 +275,10 @@ function SpaceEntryRow({
   );
 }
 
-function SpaceAnalysisPanel({ 
+function SpaceAnalysisPanel({
   analysisData,
   isLoading,
-}: { 
+}: {
   analysisData: SpaceAnalysisData | null;
   isLoading: boolean;
 }) {
@@ -301,7 +302,7 @@ function SpaceAnalysisPanel({
   const zones = analysisData.zones || [];
   const roomsCount = analysisData.rooms_count ?? rooms.length;
   const zonesCount = analysisData.zones_count ?? zones.length;
-  
+
   // Legacy format: use spaces array if rooms/zones not present
   const legacySpaces = (!analysisData.rooms && analysisData.spaces) ? analysisData.spaces : [];
   const isLegacyFormat = legacySpaces.length > 0;
@@ -397,12 +398,12 @@ function SpaceAnalysisPanel({
 
 // ============= Backend Activity Indicator =============
 // Shows last backend event and provides recovery for stale states
-function BackendActivityIndicator({ 
-  pipelineId, 
+function BackendActivityIndicator({
+  pipelineId,
   currentPhase,
   onRecover,
-}: { 
-  pipelineId: string; 
+}: {
+  pipelineId: string;
   currentPhase: string;
   onRecover: () => void;
 }) {
@@ -411,10 +412,10 @@ function BackendActivityIndicator({
   const [isRecovering, setIsRecovering] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  
+
   // Only show for running phases
-  const isRunningPhase = currentPhase.includes("running") || 
-    currentPhase === "detecting_spaces" || 
+  const isRunningPhase = currentPhase.includes("running") ||
+    currentPhase === "detecting_spaces" ||
     currentPhase === "space_analysis_running";
 
   useEffect(() => {
@@ -432,7 +433,7 @@ function BackendActivityIndicator({
         .order("ts", { ascending: false })
         .limit(1)
         .maybeSingle();
-      
+
       if (data) {
         setLastEvent(data);
         // Check if stale (>2 minutes)
@@ -441,16 +442,16 @@ function BackendActivityIndicator({
         setIsStale(now - eventTime > 2 * 60 * 1000);
       }
     };
-    
+
     fetchLastEvent();
     const interval = setInterval(fetchLastEvent, 10000);
     return () => clearInterval(interval);
   }, [pipelineId, isRunningPhase]);
-  
+
   const handleRecover = async () => {
     if (isRecovering) return;
     setIsRecovering(true);
-    
+
     try {
       // Determine the appropriate pending phase based on current phase
       let resetPhase = "space_analysis_pending";
@@ -463,21 +464,21 @@ function BackendActivityIndicator({
 
       await supabase
         .from("floorplan_pipelines")
-        .update({ 
-          whole_apartment_phase: resetPhase, 
-          last_error: "Step recovered from stale state by user" 
+        .update({
+          whole_apartment_phase: resetPhase,
+          last_error: "Step recovered from stale state by user"
         })
         .eq("id", pipelineId);
-      
+
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
-      toast({ 
-        title: "Step recovered", 
-        description: "You can now retry the step." 
+      toast({
+        title: "Step recovered",
+        description: "You can now retry the step."
       });
       onRecover();
     } catch (error) {
-      toast({ 
-        title: "Recovery failed", 
+      toast({
+        title: "Recovery failed",
         description: error instanceof Error ? error.message : "Unknown error",
         variant: "destructive",
       });
@@ -485,7 +486,7 @@ function BackendActivityIndicator({
       setIsRecovering(false);
     }
   };
-  
+
   if (!isRunningPhase) return null;
 
   return (
@@ -494,9 +495,9 @@ function BackendActivityIndicator({
         <>
           <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0" />
           <span className="text-warning">No backend activity for 2+ minutes</span>
-          <Button 
-            size="sm" 
-            variant="outline" 
+          <Button
+            size="sm"
+            variant="outline"
             onClick={handleRecover}
             disabled={isRecovering}
             className="ml-auto h-6 text-xs"
@@ -545,19 +546,19 @@ function PipelineSettingsDrawer({
 }) {
   const [ratio, setRatio] = useState(pipeline.aspect_ratio || "16:9");
   const [quality, setQuality] = useState(pipeline.output_resolution || "2K");
-  
+
   // Quality policy: determine if ratio is locked
   const phase = pipeline.whole_apartment_phase || "upload";
-  const ratioLocked = (pipeline as any).ratio_locked === true || 
+  const ratioLocked = (pipeline as any).ratio_locked === true ||
     !["upload", "space_analysis_pending"].includes(phase);
-  
+
   // Quality post step 4 (for renders, panoramas, merge)
   const qualityPostStep4 = (pipeline as any).quality_post_step4 || "2K";
   const [postStep4Quality, setPostStep4Quality] = useState(qualityPostStep4);
-  
+
   // Can only edit ratio before pipeline starts
   const canEditRatio = !ratioLocked;
-  
+
   // Can edit quality_post_step4 until renders start
   // Updated step numbering: Step 3 = Detect Spaces, Step 4 = Camera Planning
   const PHASE_STEP_MAP_LOCAL: Record<string, number> = {
@@ -634,7 +635,7 @@ function PipelineSettingsDrawer({
                 </div>
               </div>
             )}
-            
+
             {/* Quality selector shown from Step 3 onwards */}
             {currentStep >= 3 && (
               <>
@@ -644,7 +645,7 @@ function PipelineSettingsDrawer({
                   disabled={!canEditQualityPostStep4}
                   showStep4Hint
                 />
-                
+
                 {!canEditQualityPostStep4 && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg">
                     <Lock className="w-4 h-4" />
@@ -714,6 +715,8 @@ function GlobalStepsSection({
   onContinueToStep,
   isResetPending,
   isRollbackPending,
+  step2Attempts,
+  isLoadingStep2Attempts,
 }: {
   pipeline: FloorplanPipeline;
   imagePreviews: Record<string, string>;
@@ -740,6 +743,8 @@ function GlobalStepsSection({
   onContinueToStep: (fromStep: number, fromPhase: string) => void;
   isResetPending?: boolean;
   isRollbackPending?: boolean;
+  step2Attempts?: any[];
+  isLoadingStep2Attempts?: boolean;
 }) {
   const { getSignedViewUrl } = useStorage();
   const { spatialMap, isLoading: spatialMapLoading, error: spatialMapError, runSpatialDecomposition } = useSpatialMap(pipeline.id);
@@ -753,17 +758,17 @@ function GlobalStepsSection({
   const phase = pipeline.whole_apartment_phase || "upload";
   const status = pipeline.status || "";
   const stepOutputs = (pipeline.step_outputs || {}) as Record<string, { upload_id?: string; qa_status?: string; qa_report?: Record<string, unknown>; prompt_text?: string } | SpaceAnalysisData>;
-  
+
   // Extract step 1-3 retry states
   const step1RetryState = stepRetryState?.["step_1"] || null;
   const step2RetryState = stepRetryState?.["step_2"] || null;
   const step3RetryState = stepRetryState?.["step_3"] || null;
-  
+
   // Detect blocked states for Steps 1-3
   const step1Blocked = step1RetryState?.status === "blocked_for_human" || status === "step1_blocked_for_human";
   const step2Blocked = step2RetryState?.status === "blocked_for_human" || status === "step2_blocked_for_human";
   const step3Blocked = step3RetryState?.status === "blocked_for_human" || status === "step3_blocked_for_human";
-  
+
   // Note: QA fail auto-retry states computed after step outputs are declared (see below)
 
   const handlePreview = async (uploadId: string) => {
@@ -795,16 +800,16 @@ function GlobalStepsSection({
   const spaceAnalysisComplete = phase === "space_analysis_complete" || PHASE_STEP_MAP[phase] >= 1;
 
   // Step outputs - support both upload_id and output_upload_id for backwards compatibility
-  type StepOutput = { 
-    upload_id?: string; 
-    output_upload_id?: string; 
-    qa_status?: string; 
+  type StepOutput = {
+    upload_id?: string;
+    output_upload_id?: string;
+    qa_status?: string;
     qa_decision?: string;
     manual_approved?: boolean;
     manual_approved_at?: string;
     manual_rejected?: boolean;
     manual_rejected_at?: string;
-    qa_report?: Record<string, unknown>; 
+    qa_report?: Record<string, unknown>;
     qa_reason?: string;
     prompt_text?: string;
     prompt_used?: string;
@@ -818,12 +823,12 @@ function GlobalStepsSection({
   // Detect QA fail auto-retry states
   // CRITICAL FIX: Don't show qa_fail if the step output shows QA passed
   // This handles the case where backend updated step_outputs but not step_retry_state
-  const step1QAFail = (step1RetryState?.status === "qa_fail" || status === "step1_qa_fail") && 
-                      step1Output?.qa_decision !== "approved" && 
-                      step1Output?.qa_decision !== "partial_success";
-  const step2QAFail = (step2RetryState?.status === "qa_fail" || status === "step2_qa_fail") && 
-                      step2Output?.qa_decision !== "approved" && 
-                      step2Output?.qa_decision !== "partial_success";
+  const step1QAFail = (step1RetryState?.status === "qa_fail" || status === "step1_qa_fail") &&
+    step1Output?.qa_decision !== "approved" &&
+    step1Output?.qa_decision !== "partial_success";
+  const step2QAFail = (step2RetryState?.status === "qa_fail" || status === "step2_qa_fail") &&
+    step2Output?.qa_decision !== "approved" &&
+    step2Output?.qa_decision !== "partial_success";
   const step3QAFail = (step3RetryState?.status === "qa_fail" || status === "step3_qa_fail");
 
   const step1AwaitingApproval =
@@ -841,7 +846,7 @@ function GlobalStepsSection({
   // Step 1: Top-Down 3D - check both upload_id and output_upload_id
   const step1UploadId = step1Output?.upload_id || step1Output?.output_upload_id;
   const step1Running = phase === "top_down_3d_running";
-  
+
   // RESILIENT Step1 review detection:
   // Show review panel if ANY of these conditions are true:
   // 1. Phase explicitly says review
@@ -849,26 +854,26 @@ function GlobalStepsSection({
   // 3. Output has passed AI-QA but not manually approved
   const step1HasOutput = !!step1UploadId;
   const step1AIQAPassed = step1Output?.qa_status === "approved" || step1Output?.qa_decision === "approved";
-  const step1Review = 
-    (phase === "top_down_3d_review") || 
+  const step1Review =
+    (phase === "top_down_3d_review") ||
     (manualQAEnabled && step1HasOutput && !step1ManualApproved) ||
     (manualQAEnabled && step1AIQAPassed && !step1ManualApproved);
   // RESILIENT Step1 pending detection:
   // Step 1 is pending if:
   // 1. Phase explicitly says space_analysis_complete or top_down_3d_pending
   // 2. OR space analysis is complete AND no Step 1 output exists yet AND not running
-  const step1Pending = 
-    phase === "space_analysis_complete" || 
+  const step1Pending =
+    phase === "space_analysis_complete" ||
     phase === "top_down_3d_pending" ||
     (spaceAnalysisComplete && !step1HasOutput && !step1Running);
-  
+
   // Step1 is done ONLY when manually approved (if manual QA) or phase is past step 2
   const step1Done = manualQAEnabled ? step1ManualApproved : PHASE_STEP_MAP[phase] >= 2;
 
   // Step 2: Style Top-Down - check both upload_id and output_upload_id
   const step2UploadId = step2Output?.upload_id || step2Output?.output_upload_id;
   const step2Running = phase === "style_running";
-  
+
   // RESILIENT Step2 review detection:
   // Show review panel if ANY of these conditions are true:
   // 1. Phase explicitly says review
@@ -876,8 +881,8 @@ function GlobalStepsSection({
   // 3. Output has passed AI-QA but not manually approved
   const step2HasOutput = !!step2UploadId;
   const step2AIQAPassed = step2Output?.qa_status === "approved" || step2Output?.qa_decision === "approved";
-  const step2Review = 
-    (phase === "style_review") || 
+  const step2Review =
+    (phase === "style_review") ||
     (manualQAEnabled && step2HasOutput && !step2ManualApproved && step1Done) ||
     (manualQAEnabled && step2AIQAPassed && !step2ManualApproved && step1Done);
   const step2Pending = phase === "style_pending";
@@ -894,21 +899,21 @@ function GlobalStepsSection({
   const STALL_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
   const [step3LastEvent, setStep3LastEvent] = useState<{ ts: string; message: string } | null>(null);
   const [step3IsStale, setStep3IsStale] = useState(false);
-  
+
   // Cast pipeline to access new step3 tracking fields
-  const pipelineExt = pipeline as FloorplanPipeline & { 
-    step3_job_id?: string | null; 
+  const pipelineExt = pipeline as FloorplanPipeline & {
+    step3_job_id?: string | null;
     step3_last_backend_event_at?: string | null;
     step3_attempt_count?: number;
   };
-  
+
   // Stall detection effect
   useEffect(() => {
     if (!step3Running) {
       setStep3IsStale(false);
       return;
     }
-    
+
     const checkStale = async () => {
       // First check if we have step3_last_backend_event_at from the pipeline
       if (pipelineExt.step3_last_backend_event_at) {
@@ -917,7 +922,7 @@ function GlobalStepsSection({
         setStep3IsStale(isStale);
         if (!isStale) return;
       }
-      
+
       // Also check recent events from the events table
       const { data: events } = await supabase
         .from("floorplan_pipeline_events")
@@ -926,7 +931,7 @@ function GlobalStepsSection({
         .eq("step_number", 3)
         .order("ts", { ascending: false })
         .limit(1);
-      
+
       if (events && events.length > 0) {
         setStep3LastEvent(events[0]);
         const eventTime = new Date(events[0].ts).getTime();
@@ -936,7 +941,7 @@ function GlobalStepsSection({
         setStep3IsStale(Date.now() - lastEventTime > STALL_TIMEOUT_MS);
       }
     };
-    
+
     checkStale();
     const interval = setInterval(checkStale, 15000); // Check every 15 seconds
     return () => clearInterval(interval);
@@ -949,19 +954,19 @@ function GlobalStepsSection({
     if (!output) return null;
     // If qa_report exists, use it directly
     if (output.qa_report) return output.qa_report as Record<string, unknown>;
-    
+
     // Build from individual fields - include ALL available QA fields for detailed display
     const qaDecision = (output.qa_decision || output.overall_qa_decision) as string | undefined;
     const qaReason = (output.qa_reason || output.overall_qa_reason) as string | undefined;
     const approvalReasons = output.approval_reasons as string[] | undefined;
-    const checksPerformed = output.checks_performed as Array<{check: string; result: string; observation: string}> | undefined;
+    const checksPerformed = output.checks_performed as Array<{ check: string; result: string; observation: string }> | undefined;
     const score = output.score as number | undefined;
     const detectedRoomType = output.detected_room_type as string | undefined;
     const spaceTypeDeclared = output.space_type_declared as string | undefined;
     const requestAnalysis = output.request_analysis as string | undefined;
     const issues = output.issues as unknown[] | undefined;
     const structuralIssues = output.structural_issues as unknown[] | undefined;
-    
+
     if (qaDecision || qaReason || approvalReasons || checksPerformed) {
       return {
         decision: qaDecision || null,
@@ -1022,7 +1027,7 @@ function GlobalStepsSection({
     // Determine if we should show Continue button
     // Only show if step is done and onContinueAction is provided
     const showContinue = isDone && onContinueAction && !isStepRunning;
-    
+
     // Show reset button when step has some state (running, has output, or done)
     const showResetButton = isStepRunning || isDone || !!outputUploadId;
 
@@ -1126,7 +1131,7 @@ function GlobalStepsSection({
             )}
           </div>
         </div>
-        
+
         {/* Step Controls Footer (Reset + Back) */}
         <StepControlsFooter
           stepNumber={stepNum}
@@ -1190,7 +1195,7 @@ function GlobalStepsSection({
                 )}
               </div>
             </div>
-            
+
             {/* Step 0 Controls Footer (Reset only - no rollback for Step 0) */}
             <StepControlsFooter
               stepNumber={0}
@@ -1207,9 +1212,9 @@ function GlobalStepsSection({
 
         {/* Space Analysis Results Panel */}
         {spaceAnalysis && (
-          <SpaceAnalysisPanel 
-            analysisData={spaceAnalysis} 
-            isLoading={spaceAnalysisRunning} 
+          <SpaceAnalysisPanel
+            analysisData={spaceAnalysis}
+            isLoading={spaceAnalysisRunning}
           />
         )}
 
@@ -1219,9 +1224,9 @@ function GlobalStepsSection({
             spatialMap={spatialMap}
             isLoading={spatialMapLoading}
             error={spatialMapError}
-            onRetry={() => runSpatialDecomposition.mutate({ 
-              pipelineId: pipeline.id, 
-              floorPlanUploadId: pipeline.floor_plan_upload_id 
+            onRetry={() => runSpatialDecomposition.mutate({
+              pipelineId: pipeline.id,
+              floorPlanUploadId: pipeline.floor_plan_upload_id
             })}
           />
         )}
@@ -1285,7 +1290,7 @@ function GlobalStepsSection({
               isLoading={isRunning}
               bucket="floor_plans"
             />
-            
+
             {/* Step 1 Controls Footer (Reset + Back to Step 0) */}
             <StepControlsFooter
               stepNumber={1}
@@ -1390,7 +1395,29 @@ function GlobalStepsSection({
               isLoading={isRunning}
               bucket="outputs"
             />
-            
+
+            {/* NEW: All Attempts Panel with Manual Scoring (like Multi Panoramas) */}
+            {step2Attempts && step2Attempts.length > 0 && (
+              <div className="mt-4">
+                <Step2OutputsPanel
+                  pipelineId={pipeline.id}
+                  projectId={pipeline.project_id}
+                  attempts={step2Attempts}
+                  isLoading={isLoadingStep2Attempts}
+                  onAdvanceToNextStep={() => {
+                    // Advance to next step after approval
+                    onAction("continue", { fromStep: 2, toStep: 3 });
+                    onContinueToStep(2, "style_review");
+                  }}
+                  onRetryWithFeedback={(rejectionReason: string) => {
+                    // Trigger auto-retry with AI analysis of rejection feedback
+                    onAction("reject", { step: 2 });
+                    onRejectStep(2, rejectionReason);
+                  }}
+                />
+              </div>
+            )}
+
             {/* Step 2 Controls Footer (Reset + Back to Step 1) */}
             <StepControlsFooter
               stepNumber={2}
@@ -1550,12 +1577,12 @@ function GlobalStepsSection({
 
                 {/* PENDING STATE: Normal Generate button */}
                 {step3Pending && !step3Running && !step3Failed && (
-                  <Button 
-                    size="sm" 
+                  <Button
+                    size="sm"
                     onClick={() => {
                       onAction("generate", { step: 3 });
                       onRunDetectSpaces();
-                    }} 
+                    }}
                     disabled={isRunning || approvalLocked}
                   >
                     <Play className="w-4 h-4 mr-1" />
@@ -1597,7 +1624,7 @@ function GlobalStepsSection({
                 <span className="truncate">{pipeline.last_error}</span>
               </div>
             )}
-            
+
             {/* Step Controls Footer (Reset + Back) */}
             <StepControlsFooter
               stepNumber={3}
@@ -1622,7 +1649,7 @@ function GlobalStepsSection({
           // renders_pending/renders_in_progress/renders_review = locked (committed)
           const isCameraCommitted = PHASE_STEP_MAP[phase] >= 5;
           const isCameraApproved = phase === "camera_plan_confirmed";
-          
+
           return (
             <div className="space-y-3">
               <div className={cn(
@@ -1710,7 +1737,7 @@ function GlobalStepsSection({
                   isApproved={isCameraApproved}
                 />
               )}
-              
+
               {/* Step Controls Footer (Reset + Back) */}
               <StepControlsFooter
                 stepNumber={4}
@@ -1838,22 +1865,29 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   } = useWholeApartmentPipeline(pipeline.id);
 
   // Camera markers hook for Step 3: Camera Planning
-  const { 
-    confirmCameraPlan, 
-    markers: cameraMarkers, 
+  const {
+    confirmCameraPlan,
+    markers: cameraMarkers,
     isLoading: markersLoading,
-    isConfirming: isConfirmingCameraPlanHook 
+    isConfirming: isConfirmingCameraPlanHook
   } = useCameraMarkers(pipeline.id);
 
   // Available reference images for per-space selection (Step 4+ approved outputs)
   const { data: availableReferenceImages = [] } = useAvailableReferenceImages(pipeline.id);
+
+  // Fetch Step 2 attempts for detailed QA review
+  const { data: step2Attempts, isLoading: isLoadingStep2Attempts } = useStepAttempts({
+    pipelineId: pipeline.id,
+    stepNumber: 2,
+    enabled: pipeline.current_step >= 2, // Only fetch when Step 2 has started
+  });
 
   const spaces = pipelineSpaces || [];
 
   // Realtime subscription for pipeline changes (phase, step, step_outputs)
   // to immediately reflect approval/rejection without manual refresh
   const pipelineSubRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  
+
   useEffect(() => {
     if (!pipeline.id) return;
 
@@ -1887,7 +1921,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
       channel.unsubscribe();
     };
   }, [pipeline.id, pipeline.project_id, queryClient]);
-  
+
   const phase = pipeline.whole_apartment_phase || "upload";
   const currentStep = PHASE_STEP_MAP[phase] || 0;
 
@@ -1952,7 +1986,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
             const excludedCount = data?.excluded_count ?? 0;
             toast({
               title: "Step 3 complete",
-              description: excludedCount > 0 
+              description: excludedCount > 0
                 ? `${activeCount} active spaces ready (${excludedCount} excluded)`
                 : `${activeCount} spaces detected - ready for renders`,
             });
@@ -2037,14 +2071,14 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
         step_outputs: updatedStepOutputs,
         ...(nextPhase
           ? {
-              whole_apartment_phase: nextPhase,
-              current_step: nextCurrentStep,
-              updated_at: new Date().toISOString(),
-            }
+            whole_apartment_phase: nextPhase,
+            current_step: nextCurrentStep,
+            updated_at: new Date().toISOString(),
+          }
           : {
-              current_step: nextCurrentStep,
-              updated_at: new Date().toISOString(),
-            }),
+            current_step: nextCurrentStep,
+            updated_at: new Date().toISOString(),
+          }),
       })
       .eq("id", pipeline.id);
 
@@ -2063,12 +2097,12 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
         return old.map((p: any) =>
           p.id === pipeline.id
             ? {
-                ...p,
-                step_outputs: updatedStepOutputs,
-                whole_apartment_phase: nextPhase ?? p.whole_apartment_phase,
-                current_step: nextCurrentStep,
-                updated_at: new Date().toISOString(),
-              }
+              ...p,
+              step_outputs: updatedStepOutputs,
+              whole_apartment_phase: nextPhase ?? p.whole_apartment_phase,
+              current_step: nextCurrentStep,
+              updated_at: new Date().toISOString(),
+            }
             : p
         );
       }
@@ -2092,10 +2126,10 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
     const currentStepKey = step === 1 ? "step1" : "step2";
     const stepOutputs = (pipeline.step_outputs || {}) as Record<string, any>;
     const existing = (stepOutputs[currentStepKey] || stepOutputs[String(step)] || {}) as Record<string, any>;
-    
+
     // Get the old output upload ID so we can delete it
     const oldOutputUploadId = existing?.output_upload_id || existing?.upload_id;
-    
+
     // Get QA info for learning feedback
     const qaDecision = existing?.qa_decision || existing?.qa_status || "approved";
     const qaReasons = existing?.qa_report?.reasons || existing?.qa_reasons || [];
@@ -2116,7 +2150,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
           qaReasons: qaReasons,
           userVote: "dislike", // User disagrees with QA approval
           userCategory: "other", // Default category for rejections
-          userCommentShort: notes.slice(0, 200),
+          userCommentShort: notes.slice(0, 500),
           contextSnapshot: {
             step_outputs: existing,
             rejection_source: "manual_reject_button",
@@ -2166,7 +2200,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
         .from("uploads")
         .delete()
         .eq("id", oldOutputUploadId);
-      
+
       if (deleteError) {
         console.warn(`[handleRejectGlobalStep] Failed to delete old output: ${deleteError.message}`);
         // Continue anyway - the output will be orphaned but generation can proceed
@@ -2197,20 +2231,20 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
         return old.map((p: any) =>
           p.id === pipeline.id
             ? {
-                ...p,
-                step_outputs: updatedStepOutputs,
-                whole_apartment_phase: resetPhase ?? p.whole_apartment_phase,
-                last_error: null,
-                updated_at: new Date().toISOString(),
-              }
+              ...p,
+              step_outputs: updatedStepOutputs,
+              whole_apartment_phase: resetPhase ?? p.whole_apartment_phase,
+              last_error: null,
+              updated_at: new Date().toISOString(),
+            }
             : p
         );
       }
     );
 
-    toast({ 
-      title: "Step rejected", 
-      description: `Starting new generation for Step ${step}...` 
+    toast({
+      title: "Step rejected",
+      description: `Starting new generation for Step ${step}...`
     });
 
     // Step 3: Auto-trigger the re-generation
@@ -2227,10 +2261,10 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
 
       if (runError) {
         console.error(`[handleRejectGlobalStep] Re-run failed:`, runError);
-        toast({ 
-          title: "Re-generation failed", 
-          description: runError.message, 
-          variant: "destructive" 
+        toast({
+          title: "Re-generation failed",
+          description: runError.message,
+          variant: "destructive"
         });
       } else {
         console.log(`[handleRejectGlobalStep] Re-run triggered successfully:`, data);
@@ -2242,10 +2276,10 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
             return old.map((p: any) =>
               p.id === pipeline.id
                 ? {
-                    ...p,
-                    whole_apartment_phase: runningPhaseMap[step] ?? p.whole_apartment_phase,
-                    updated_at: new Date().toISOString(),
-                  }
+                  ...p,
+                  whole_apartment_phase: runningPhaseMap[step] ?? p.whole_apartment_phase,
+                  updated_at: new Date().toISOString(),
+                }
                 : p
             );
           }
@@ -2253,10 +2287,10 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
       }
     } catch (err) {
       console.error(`[handleRejectGlobalStep] Re-run exception:`, err);
-      toast({ 
-        title: "Re-generation failed", 
-        description: err instanceof Error ? err.message : "Unknown error", 
-        variant: "destructive" 
+      toast({
+        title: "Re-generation failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive"
       });
     }
 
@@ -2411,14 +2445,14 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   const step2PendingApproval = !!manualQAEnabled && !!(s2?.upload_id || s2?.output_upload_id) && !s2?.manual_approved && (phase === "style_review");
   const spacePendingApprovalCount = manualQAEnabled
     ? (spaces || []).reduce((sum, sp) => {
-        const rA = sp.renders?.find(r => r.kind === "A");
-        const rB = sp.renders?.find(r => r.kind === "B");
-        const pA = sp.panoramas?.find(p => p.kind === "A");
-        const pB = sp.panoramas?.find(p => p.kind === "B");
-        const f = sp.final360;
-        const isNeeds = (a: any) => a && a.status === "needs_review" && !a.locked_approved;
-        return sum + (isNeeds(rA) ? 1 : 0) + (isNeeds(rB) ? 1 : 0) + (isNeeds(pA) ? 1 : 0) + (isNeeds(pB) ? 1 : 0) + (isNeeds(f) ? 1 : 0);
-      }, 0)
+      const rA = sp.renders?.find(r => r.kind === "A");
+      const rB = sp.renders?.find(r => r.kind === "B");
+      const pA = sp.panoramas?.find(p => p.kind === "A");
+      const pB = sp.panoramas?.find(p => p.kind === "B");
+      const f = sp.final360;
+      const isNeeds = (a: any) => a && a.status === "needs_review" && !a.locked_approved;
+      return sum + (isNeeds(rA) ? 1 : 0) + (isNeeds(rB) ? 1 : 0) + (isNeeds(pA) ? 1 : 0) + (isNeeds(pB) ? 1 : 0) + (isNeeds(f) ? 1 : 0);
+    }, 0)
     : 0;
   const outputsPendingApproval = (step1PendingApproval ? 1 : 0) + (step2PendingApproval ? 1 : 0) + spacePendingApprovalCount;
   const approvalLocked = outputsPendingApproval > 0;
@@ -2443,7 +2477,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
                   )}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {progressDetails?.totalSpaces 
+                  {progressDetails?.totalSpaces
                     ? `${progressDetails.completedSpaces}/${progressDetails.totalSpaces} spaces completed`
                     : `${spaces.length} spaces detected`
                   } • {progress}% complete
@@ -2486,21 +2520,21 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     onClick={() => setTerminalOpen(!terminalOpen)}
                   >
                     <Terminal className="w-4 h-4 mr-2" />
                     {terminalOpen ? "Hide Logs" : "Show Logs"}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     onClick={() => setRestartDialogOpen(true)}
                     disabled={isRunning || restartPipeline.isPending}
                   >
                     <RotateCcw className="w-4 h-4 mr-2" />
                     Start Over
                   </DropdownMenuItem>
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     onClick={() => setDeleteDialogOpen(true)}
                     className="text-destructive focus:text-destructive"
                     disabled={deletePipeline.isPending}
@@ -2532,727 +2566,727 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
           <GlobalStepIndicator currentStep={currentStep} />
         </CardHeader>
 
-      <CardContent className="space-y-4">
-        {/* Persistent Source Floor Plan Viewer - syncs to Step 3 output when available */}
-        <SourcePlanViewer
-          floorPlanUploadId={pipeline.floor_plan_upload_id}
-          styledOutputUploadId={styledImageUploadId}
-          bucket="panoramas"
-          analysisData={{
-            dimension_analysis: (stepOutputs as Record<string, unknown>)?.dimension_analysis as {
-              dimensions_found: boolean;
-              units?: string;
-              key_dimensions?: string[];
-            } | undefined,
-            geometry_analysis: (stepOutputs as Record<string, unknown>)?.geometry_analysis as {
-              has_non_orthogonal_walls: boolean;
-              has_curved_walls: boolean;
-              geometry_notes?: string;
-            } | undefined,
-          }}
-        />
+        <CardContent className="space-y-4">
+          {/* Persistent Source Floor Plan Viewer - syncs to Step 3 output when available */}
+          <SourcePlanViewer
+            floorPlanUploadId={pipeline.floor_plan_upload_id}
+            styledOutputUploadId={styledImageUploadId}
+            bucket="panoramas"
+            analysisData={{
+              dimension_analysis: (stepOutputs as Record<string, unknown>)?.dimension_analysis as {
+                dimensions_found: boolean;
+                units?: string;
+                key_dimensions?: string[];
+              } | undefined,
+              geometry_analysis: (stepOutputs as Record<string, unknown>)?.geometry_analysis as {
+                has_non_orthogonal_walls: boolean;
+                has_curved_walls: boolean;
+                geometry_notes?: string;
+              } | undefined,
+            }}
+          />
 
-        {/* Design Reference Upload - visible before Step 2 completes, collapsed after start */}
-        <PipelineDesignReferenceUploader
-          pipelineId={pipeline.id}
-          projectId={pipeline.project_id}
-          existingRefIds={((stepOutputs as Record<string, unknown>)?.design_reference_ids as string[]) || []}
-          onReferencesChange={handleDesignReferencesChange}
-          isLocked={currentStep >= 3} // Lock after Step 2 (style) completes
-          hasStarted={currentStep >= 1 || phase !== "upload"} // Collapse after pipeline has started
-          currentStep={currentStep}
-          currentPhase={phase}
-        />
+          {/* Design Reference Upload - visible before Step 2 completes, collapsed after start */}
+          <PipelineDesignReferenceUploader
+            pipelineId={pipeline.id}
+            projectId={pipeline.project_id}
+            existingRefIds={((stepOutputs as Record<string, unknown>)?.design_reference_ids as string[]) || []}
+            onReferencesChange={handleDesignReferencesChange}
+            isLocked={currentStep >= 3} // Lock after Step 2 (style) completes
+            hasStarted={currentStep >= 1 || phase !== "upload"} // Collapse after pipeline has started
+            currentStep={currentStep}
+            currentPhase={phase}
+          />
 
-        {/* Design Reference Debug Panel - shows style analysis status */}
-        <ReferenceStyleDebugPanel
-          pipelineId={pipeline.id}
-          projectId={pipeline.project_id}
-          designRefIds={((stepOutputs as Record<string, unknown>)?.design_reference_ids as string[]) || []}
-          referenceStyleAnalysis={(stepOutputs as Record<string, unknown>)?.reference_style_analysis as any}
-          currentPhase={phase}
-          currentStep={currentStep}
-        />
+          {/* Design Reference Debug Panel - shows style analysis status */}
+          <ReferenceStyleDebugPanel
+            pipelineId={pipeline.id}
+            projectId={pipeline.project_id}
+            designRefIds={((stepOutputs as Record<string, unknown>)?.design_reference_ids as string[]) || []}
+            referenceStyleAnalysis={(stepOutputs as Record<string, unknown>)?.reference_style_analysis as any}
+            currentPhase={phase}
+            currentStep={currentStep}
+          />
 
-        {/* Global Steps Section (1-3) */}
-        <Collapsible open={globalStepsExpanded} onOpenChange={setGlobalStepsExpanded}>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" className="w-full justify-between h-auto py-2">
-              <span className="text-sm font-medium">Global Steps (1-3)</span>
-              <ChevronDown
-                className={`w-4 h-4 transition-transform ${
-                  globalStepsExpanded ? "rotate-180" : ""
-                }`}
-              />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2 space-y-2">
-            <GlobalStepsSection
-              pipeline={pipeline}
-              imagePreviews={imagePreviews}
-              onRunSpaceAnalysis={handleRunSpaceAnalysis}
-              onRunTopDown={handleRunTopDown}
-              onRunStyle={handleRunStyle}
-              onConfirmCameraPlan={() => confirmCameraPlan.mutate()}
-              onRunDetectSpaces={handleRunDetectSpaces}
-              onRetryDetectSpaces={handleRetryDetectSpaces}
-              onApproveStep={handleApproveGlobalStep}
-              onRejectStep={handleRejectGlobalStep}
-              isRunning={isAnyMutationPending}
-              isRetryingStep4={retryDetectSpaces.isPending}
-              isConfirmingCameraPlan={isConfirmingCameraPlanHook}
-              manualQAEnabled={manualQAEnabled}
-              approvalLocked={approvalLocked}
-              onAction={onAction}
-              currentStep={currentStep}
-              stepRetryState={(pipeline as any).step_retry_state as Record<string, StepRetryState> | undefined}
-              onManualApproveStep={async (stepNumber, outputUploadId) => {
-                try {
-                  await manualApproveAfterRetryExhaustion.mutateAsync({
-                    pipelineId: pipeline.id,
-                    stepNumber,
-                    outputUploadId,
-                  });
-                  toast({
-                    title: "Approved manually",
-                    description: `Step ${stepNumber} approved. Step ${stepNumber + 1} is now unlocked.`,
-                  });
-                } catch (err) {
-                  const message = err instanceof Error ? err.message : "Manual approval failed";
-                  toast({
-                    title: "Manual approval failed",
-                    description: message,
-                    variant: "destructive",
-                  });
-                }
-              }}
-              onManualRejectStep={async (stepNumber) => {
-                try {
-                  await rejectAfterRetryExhaustion.mutateAsync({ pipelineId: pipeline.id, stepNumber });
-                  toast({
-                    title: "Pipeline stopped",
-                    description: `Step ${stepNumber} rejected. All attempts failed QA - pipeline has been stopped.`,
-                    variant: "destructive",
-                  });
-                } catch (err) {
-                  const message = err instanceof Error ? err.message : "Failed to stop pipeline";
-                  toast({
-                    title: "Failed to stop pipeline",
-                    description: message,
-                    variant: "destructive",
-                  });
-                }
-              }}
-              onRestartStep={async (stepNumber) => {
-                try {
-                  await restartStep.mutateAsync({ pipelineId: pipeline.id, stepNumber });
-                  toast({
-                    title: "Step restarted",
-                    description: `Step ${stepNumber} has been reset. Click "Generate" to create new outputs with QA.`,
-                  });
-                } catch (err) {
-                  const message = err instanceof Error ? err.message : "Failed to restart step";
-                  toast({
-                    title: "Restart failed",
-                    description: message,
-                    variant: "destructive",
-                  });
-                }
-              }}
-              onRollbackStep={async (stepNumber) => {
-                try {
-                  await rollbackToPreviousStep.mutateAsync({ pipelineId: pipeline.id, currentStepNumber: stepNumber });
-                  toast({
-                    title: "Rolled back",
-                    description: `Returned to Step ${stepNumber - 1}. Step ${stepNumber}+ outputs have been cleared.`,
-                  });
-                } catch (err) {
-                  const message = err instanceof Error ? err.message : "Failed to rollback";
-                  toast({
-                    title: "Rollback failed",
-                    description: message,
-                    variant: "destructive",
-                  });
-                }
-              }}
-              isResetPending={restartStep.isPending}
-              isRollbackPending={rollbackToPreviousStep.isPending}
-              onContinueToStep={async (fromStep, fromPhase) => {
-                try {
-                  // Defensive: avoid firing a transition from stale UI state.
-                  // The backend enforces optimistic concurrency (409 on phase mismatch),
-                  // so we preflight-read the latest phase before calling continue.
-                  const { data: latest, error: latestErr } = await supabase
-                    .from("floorplan_pipelines")
-                    .select("whole_apartment_phase, current_step")
-                    .eq("id", pipeline.id)
-                    .maybeSingle();
-
-                  if (latestErr) throw latestErr;
-
-                  const latestPhase = latest?.whole_apartment_phase ?? "";
-
-                  if (latestPhase !== fromPhase) {
-                    // Bring UI back in sync and avoid triggering an invalid transition.
-                    queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", pipeline.project_id] });
-                    queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
-
-                    toast({
-                      title: "Pipeline already advanced",
-                      description: `Current phase is '${latestPhase || "unknown"}'. Refreshing pipeline state…`,
+          {/* Global Steps Section (1-3) */}
+          <Collapsible open={globalStepsExpanded} onOpenChange={setGlobalStepsExpanded}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-between h-auto py-2">
+                <span className="text-sm font-medium">Global Steps (1-3)</span>
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${globalStepsExpanded ? "rotate-180" : ""
+                    }`}
+                />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2 space-y-2">
+              <GlobalStepsSection
+                pipeline={pipeline}
+                imagePreviews={imagePreviews}
+                onRunSpaceAnalysis={handleRunSpaceAnalysis}
+                onRunTopDown={handleRunTopDown}
+                onRunStyle={handleRunStyle}
+                onConfirmCameraPlan={() => confirmCameraPlan.mutate()}
+                onRunDetectSpaces={handleRunDetectSpaces}
+                onRetryDetectSpaces={handleRetryDetectSpaces}
+                onApproveStep={handleApproveGlobalStep}
+                onRejectStep={handleRejectGlobalStep}
+                isRunning={isAnyMutationPending}
+                isRetryingStep4={retryDetectSpaces.isPending}
+                isConfirmingCameraPlan={isConfirmingCameraPlanHook}
+                manualQAEnabled={manualQAEnabled}
+                approvalLocked={approvalLocked}
+                onAction={onAction}
+                currentStep={currentStep}
+                stepRetryState={(pipeline as any).step_retry_state as Record<string, StepRetryState> | undefined}
+                onManualApproveStep={async (stepNumber, outputUploadId) => {
+                  try {
+                    await manualApproveAfterRetryExhaustion.mutateAsync({
+                      pipelineId: pipeline.id,
+                      stepNumber,
+                      outputUploadId,
                     });
-                    return;
+                    toast({
+                      title: "Approved manually",
+                      description: `Step ${stepNumber} approved. Step ${stepNumber + 1} is now unlocked.`,
+                    });
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : "Manual approval failed";
+                    toast({
+                      title: "Manual approval failed",
+                      description: message,
+                      variant: "destructive",
+                    });
                   }
+                }}
+                onManualRejectStep={async (stepNumber) => {
+                  try {
+                    await rejectAfterRetryExhaustion.mutateAsync({ pipelineId: pipeline.id, stepNumber });
+                    toast({
+                      title: "Pipeline stopped",
+                      description: `Step ${stepNumber} rejected. All attempts failed QA - pipeline has been stopped.`,
+                      variant: "destructive",
+                    });
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : "Failed to stop pipeline";
+                    toast({
+                      title: "Failed to stop pipeline",
+                      description: message,
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                onRestartStep={async (stepNumber) => {
+                  try {
+                    await restartStep.mutateAsync({ pipelineId: pipeline.id, stepNumber });
+                    toast({
+                      title: "Step restarted",
+                      description: `Step ${stepNumber} has been reset. Click "Generate" to create new outputs with QA.`,
+                    });
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : "Failed to restart step";
+                    toast({
+                      title: "Restart failed",
+                      description: message,
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                onRollbackStep={async (stepNumber) => {
+                  try {
+                    await rollbackToPreviousStep.mutateAsync({ pipelineId: pipeline.id, currentStepNumber: stepNumber });
+                    toast({
+                      title: "Rolled back",
+                      description: `Returned to Step ${stepNumber - 1}. Step ${stepNumber}+ outputs have been cleared.`,
+                    });
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : "Failed to rollback";
+                    toast({
+                      title: "Rollback failed",
+                      description: message,
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                isResetPending={restartStep.isPending}
+                isRollbackPending={rollbackToPreviousStep.isPending}
+                step2Attempts={step2Attempts}
+                isLoadingStep2Attempts={isLoadingStep2Attempts}
+                onContinueToStep={async (fromStep, fromPhase) => {
+                  try {
+                    // Defensive: avoid firing a transition from stale UI state.
+                    // The backend enforces optimistic concurrency (409 on phase mismatch),
+                    // so we preflight-read the latest phase before calling continue.
+                    const { data: latest, error: latestErr } = await supabase
+                      .from("floorplan_pipelines")
+                      .select("whole_apartment_phase, current_step")
+                      .eq("id", pipeline.id)
+                      .maybeSingle();
 
+                    if (latestErr) throw latestErr;
+
+                    const latestPhase = latest?.whole_apartment_phase ?? "";
+
+                    if (latestPhase !== fromPhase) {
+                      // Bring UI back in sync and avoid triggering an invalid transition.
+                      queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", pipeline.project_id] });
+                      queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+
+                      toast({
+                        title: "Pipeline already advanced",
+                        description: `Current phase is '${latestPhase || "unknown"}'. Refreshing pipeline state…`,
+                      });
+                      return;
+                    }
+
+                    continueToStep.mutate({
+                      pipelineId: pipeline.id,
+                      fromStep,
+                      fromPhase,
+                    });
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : "Failed to continue";
+                    toast({
+                      title: "Continue failed",
+                      description: message,
+                      variant: "destructive",
+                    });
+                  }
+                }}
+              />
+
+              {/* Backend Activity Indicator - shows last event and stale recovery */}
+              <BackendActivityIndicator
+                pipelineId={pipeline.id}
+                currentPhase={phase}
+                onRecover={onUpdatePipeline || (() => { })}
+              />
+
+              {/* Pipeline Debug Panel - shows current state for troubleshooting (dev only) */}
+              <PipelineDebugPanel
+                pipelineId={pipeline.id}
+                currentStep={currentStep}
+                phase={phase}
+                status={pipeline.status}
+                step1ManualApproved={!!s1?.manual_approved}
+                step2ManualApproved={!!s2?.manual_approved}
+                stepRetryState={(pipeline as any).step_retry_state}
+                stepOutputs={stepOutputsAll}
+                lastAction={lastAction ? `${lastAction.type}` : undefined}
+              />
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* Spaces Section (Steps 4-6) with Dynamic Batch Actions */}
+          {showSpacesSection && (() => {
+            // Split spaces into active and excluded groups
+            const activeSpaces = spaces.filter(s => !s.is_excluded && s.include_in_generation !== false);
+            const excludedSpaces = spaces.filter(s => s.is_excluded || s.include_in_generation === false);
+
+            // Calculate batch action state
+            const allRendersApproved = activeSpaces.length > 0 && activeSpaces.every(s => {
+              const renderA = s.renders?.find(r => r.kind === "A");
+              const renderB = s.renders?.find(r => r.kind === "B");
+              return renderA?.locked_approved && renderB?.locked_approved;
+            });
+
+            const allPanoramasApproved = activeSpaces.length > 0 && activeSpaces.every(s => {
+              const panoA = s.panoramas?.find(p => p.kind === "A");
+              const panoB = s.panoramas?.find(p => p.kind === "B");
+              return panoA?.locked_approved && panoB?.locked_approved;
+            });
+
+            const allFinal360sApproved = activeSpaces.length > 0 && activeSpaces.every(s =>
+              s.final360?.locked_approved
+            );
+
+            const hasAnyPendingRenders = activeSpaces.some(s => {
+              const renderA = s.renders?.find(r => r.kind === "A");
+              const renderB = s.renders?.find(r => r.kind === "B");
+              return !renderA?.locked_approved || !renderB?.locked_approved;
+            });
+
+            const hasAnyPendingPanoramas = allRendersApproved && activeSpaces.some(s => {
+              const panoA = s.panoramas?.find(p => p.kind === "A");
+              const panoB = s.panoramas?.find(p => p.kind === "B");
+              return !panoA?.locked_approved || !panoB?.locked_approved;
+            });
+
+            const hasAnyPendingMerges = allPanoramasApproved && activeSpaces.some(s =>
+              !s.final360?.locked_approved
+            );
+
+            // Determine the primary batch action based on current state
+            const getBatchAction = () => {
+              // LEGACY: "Continue to Renders" is disabled for now
+              // The transition from camera_plan_confirmed → renders_pending
+              // should happen via per-space render starts or a future unified action
+              // TODO: Re-enable when batch render flow is redesigned
+              const HIDE_LEGACY_CONTINUE_TO_RENDERS = true;
+
+              // Phase: camera_plan_confirmed - need to transition to renders_pending first
+              if (phase === "camera_plan_confirmed") {
+                if (HIDE_LEGACY_CONTINUE_TO_RENDERS) {
+                  return null; // Hide the button entirely
+                }
+                return {
+                  label: "Continue to Renders",
+                  action: "continue_to_renders",
+                  icon: Play,
+                  disabled: isAnyMutationPending || continueToStep.isPending,
+                };
+              }
+
+              // Phase: renders_pending, renders_in_progress, or renders_review - ready to start/continue renders
+              const isRendersPhase = phase === "renders_pending" ||
+                phase === "renders_in_progress" ||
+                phase === "renders_review";
+
+              if (isRendersPhase && activeSpaces.length > 0 && hasAnyPendingRenders) {
+                return {
+                  label: "Start All Renders",
+                  action: "start_renders",
+                  icon: Play,
+                  disabled: isAnyMutationPending || !styledImageUploadId,
+                };
+              }
+
+              // Phase: all renders approved - ready for panoramas
+              if (allRendersApproved && hasAnyPendingPanoramas) {
+                return {
+                  label: "Start All Panoramas",
+                  action: "start_panoramas",
+                  icon: Play,
+                  disabled: isAnyMutationPending,
+                };
+              }
+
+              // Phase: all panoramas approved - ready for merges
+              if (allPanoramasApproved && hasAnyPendingMerges) {
+                return {
+                  label: "Start All Merges",
+                  action: "start_merges",
+                  icon: Play,
+                  disabled: isAnyMutationPending,
+                };
+              }
+
+              // All complete
+              if (allFinal360sApproved) {
+                return {
+                  label: "Pipeline Complete",
+                  action: "complete",
+                  icon: Check,
+                  disabled: true,
+                };
+              }
+
+              return null;
+            };
+
+            const batchAction = getBatchAction();
+
+            const handleBatchAction = () => {
+              if (!batchAction || batchAction.disabled) return;
+
+              switch (batchAction.action) {
+                case "continue_to_renders":
+                  // Transition from camera_plan_confirmed → renders_pending
                   continueToStep.mutate({
                     pipelineId: pipeline.id,
-                    fromStep,
-                    fromPhase,
+                    fromStep: 4, // camera_plan_confirmed is step 4
+                    fromPhase: "camera_plan_confirmed",
                   });
-                } catch (err) {
-                  const message = err instanceof Error ? err.message : "Failed to continue";
-                  toast({
-                    title: "Continue failed",
-                    description: message,
-                    variant: "destructive",
-                  });
-                }
-              }}
-            />
-            
-            {/* Backend Activity Indicator - shows last event and stale recovery */}
-            <BackendActivityIndicator
-              pipelineId={pipeline.id}
-              currentPhase={phase}
-              onRecover={onUpdatePipeline || (() => {})}
-            />
-            
-            {/* Pipeline Debug Panel - shows current state for troubleshooting (dev only) */}
-            <PipelineDebugPanel
-              pipelineId={pipeline.id}
-              currentStep={currentStep}
-              phase={phase}
-              status={pipeline.status}
-              step1ManualApproved={!!s1?.manual_approved}
-              step2ManualApproved={!!s2?.manual_approved}
-              stepRetryState={(pipeline as any).step_retry_state}
-              stepOutputs={stepOutputsAll}
-              lastAction={lastAction ? `${lastAction.type}` : undefined}
-            />
-          </CollapsibleContent>
-        </Collapsible>
-
-        {/* Spaces Section (Steps 4-6) with Dynamic Batch Actions */}
-        {showSpacesSection && (() => {
-          // Split spaces into active and excluded groups
-          const activeSpaces = spaces.filter(s => !s.is_excluded && s.include_in_generation !== false);
-          const excludedSpaces = spaces.filter(s => s.is_excluded || s.include_in_generation === false);
-          
-          // Calculate batch action state
-          const allRendersApproved = activeSpaces.length > 0 && activeSpaces.every(s => {
-            const renderA = s.renders?.find(r => r.kind === "A");
-            const renderB = s.renders?.find(r => r.kind === "B");
-            return renderA?.locked_approved && renderB?.locked_approved;
-          });
-          
-          const allPanoramasApproved = activeSpaces.length > 0 && activeSpaces.every(s => {
-            const panoA = s.panoramas?.find(p => p.kind === "A");
-            const panoB = s.panoramas?.find(p => p.kind === "B");
-            return panoA?.locked_approved && panoB?.locked_approved;
-          });
-          
-          const allFinal360sApproved = activeSpaces.length > 0 && activeSpaces.every(s => 
-            s.final360?.locked_approved
-          );
-          
-          const hasAnyPendingRenders = activeSpaces.some(s => {
-            const renderA = s.renders?.find(r => r.kind === "A");
-            const renderB = s.renders?.find(r => r.kind === "B");
-            return !renderA?.locked_approved || !renderB?.locked_approved;
-          });
-          
-          const hasAnyPendingPanoramas = allRendersApproved && activeSpaces.some(s => {
-            const panoA = s.panoramas?.find(p => p.kind === "A");
-            const panoB = s.panoramas?.find(p => p.kind === "B");
-            return !panoA?.locked_approved || !panoB?.locked_approved;
-          });
-          
-          const hasAnyPendingMerges = allPanoramasApproved && activeSpaces.some(s => 
-            !s.final360?.locked_approved
-          );
-          
-          // Determine the primary batch action based on current state
-          const getBatchAction = () => {
-            // LEGACY: "Continue to Renders" is disabled for now
-            // The transition from camera_plan_confirmed → renders_pending
-            // should happen via per-space render starts or a future unified action
-            // TODO: Re-enable when batch render flow is redesigned
-            const HIDE_LEGACY_CONTINUE_TO_RENDERS = true;
-            
-            // Phase: camera_plan_confirmed - need to transition to renders_pending first
-            if (phase === "camera_plan_confirmed") {
-              if (HIDE_LEGACY_CONTINUE_TO_RENDERS) {
-                return null; // Hide the button entirely
-              }
-              return {
-                label: "Continue to Renders",
-                action: "continue_to_renders",
-                icon: Play,
-                disabled: isAnyMutationPending || continueToStep.isPending,
-              };
-            }
-            
-            // Phase: renders_pending, renders_in_progress, or renders_review - ready to start/continue renders
-            const isRendersPhase = phase === "renders_pending" ||
-              phase === "renders_in_progress" ||
-              phase === "renders_review";
-            
-            if (isRendersPhase && activeSpaces.length > 0 && hasAnyPendingRenders) {
-              return {
-                label: "Start All Renders",
-                action: "start_renders",
-                icon: Play,
-                disabled: isAnyMutationPending || !styledImageUploadId,
-              };
-            }
-            
-            // Phase: all renders approved - ready for panoramas
-            if (allRendersApproved && hasAnyPendingPanoramas) {
-              return {
-                label: "Start All Panoramas",
-                action: "start_panoramas",
-                icon: Play,
-                disabled: isAnyMutationPending,
-              };
-            }
-            
-            // Phase: all panoramas approved - ready for merges
-            if (allPanoramasApproved && hasAnyPendingMerges) {
-              return {
-                label: "Start All Merges",
-                action: "start_merges",
-                icon: Play,
-                disabled: isAnyMutationPending,
-              };
-            }
-            
-            // All complete
-            if (allFinal360sApproved) {
-              return {
-                label: "Pipeline Complete",
-                action: "complete",
-                icon: Check,
-                disabled: true,
-              };
-            }
-            
-            return null;
-          };
-          
-          const batchAction = getBatchAction();
-          
-          const handleBatchAction = () => {
-            if (!batchAction || batchAction.disabled) return;
-            
-            switch (batchAction.action) {
-              case "continue_to_renders":
-                // Transition from camera_plan_confirmed → renders_pending
-                continueToStep.mutate({
-                  pipelineId: pipeline.id,
-                  fromStep: 4, // camera_plan_confirmed is step 4
-                  fromPhase: "camera_plan_confirmed",
-                });
-                setTerminalOpen(true); // Open terminal to show progress
-                toast({ 
-                  title: "Continuing to renders", 
-                  description: "Transitioning to render phase..." 
-                });
-                break;
-              case "start_renders":
-                if (styledImageUploadId) {
-                  runBatchRenders.mutate({ pipelineId: pipeline.id, styledImageUploadId });
                   setTerminalOpen(true); // Open terminal to show progress
-                  toast({ title: "Starting renders", description: `Processing ${activeSpaces.length * 2} renders...` });
-                }
-                break;
-              case "start_panoramas":
-                runBatchPanoramas.mutate({ pipelineId: pipeline.id });
-                setTerminalOpen(true); // Open terminal to show progress
-                toast({ title: "Starting panoramas", description: `Processing ${activeSpaces.length * 2} panoramas...` });
-                break;
-              case "start_merges":
-                // Step 7 Quality UI Gate: Open pre-run settings instead of starting immediately
-                setStep7SettingsOpen(true);
-                break;
-            }
-          };
-          
-          return (
-            <>
-              <Separator />
+                  toast({
+                    title: "Continuing to renders",
+                    description: "Transitioning to render phase..."
+                  });
+                  break;
+                case "start_renders":
+                  if (styledImageUploadId) {
+                    runBatchRenders.mutate({ pipelineId: pipeline.id, styledImageUploadId });
+                    setTerminalOpen(true); // Open terminal to show progress
+                    toast({ title: "Starting renders", description: `Processing ${activeSpaces.length * 2} renders...` });
+                  }
+                  break;
+                case "start_panoramas":
+                  runBatchPanoramas.mutate({ pipelineId: pipeline.id });
+                  setTerminalOpen(true); // Open terminal to show progress
+                  toast({ title: "Starting panoramas", description: `Processing ${activeSpaces.length * 2} panoramas...` });
+                  break;
+                case "start_merges":
+                  // Step 7 Quality UI Gate: Open pre-run settings instead of starting immediately
+                  setStep7SettingsOpen(true);
+                  break;
+              }
+            };
+
+            return (
+              <>
+                <Separator />
 
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium flex items-center gap-2">
-                    <Box className="w-4 h-4 text-primary" />
-                    Spaces ({activeSpaces.length} active{excludedSpaces.length > 0 && `, ${excludedSpaces.length} excluded`})
-                  </h3>
-                  
-                  {/* Dynamic Batch Action Button */}
-                  {currentStep < 3 ? (
-                    <Badge variant="outline" className="text-xs text-muted-foreground">
-                      <Lock className="w-3 h-3 mr-1" />
-                      Complete Step 3 first
-                    </Badge>
-                  ) : batchAction ? (
-                    <Button
-                      size="sm"
-                      onClick={handleBatchAction}
-                      disabled={batchAction.disabled}
-                      variant={batchAction.action === "complete" ? "outline" : "default"}
-                      className={batchAction.action === "complete" ? "text-primary" : ""}
-                    >
-                      {isAnyMutationPending && batchAction.action !== "complete" ? (
-                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                      ) : (
-                        <batchAction.icon className="w-4 h-4 mr-1" />
-                      )}
-                      {batchAction.label}
-                    </Button>
-                  ) : null}
-                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium flex items-center gap-2">
+                      <Box className="w-4 h-4 text-primary" />
+                      Spaces ({activeSpaces.length} active{excludedSpaces.length > 0 && `, ${excludedSpaces.length} excluded`})
+                    </h3>
 
-                {spaces.length === 0 && currentStep >= 3 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Box className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No spaces detected yet</p>
-                    <p className="text-xs">Run "Detect Spaces" to begin</p>
-                  </div>
-                )}
-
-                {/* Active Spaces - Full functionality */}
-                {activeSpaces.map((space) => (
-                  <SpaceCard
-                    key={space.id}
-                    space={space}
-                    pipelineId={pipeline.id}
-                    styledImageUploadId={styledImageUploadId}
-                    pipelineRatio={pipeline.aspect_ratio || "16:9"}
-                    pipelineQuality={pipeline.output_resolution || "2K"}
-                    onRunRender={handleRunRender}
-                    onRunPanorama={handleRunPanorama}
-                    onRunMerge={handleRunMerge}
-                    onApproveRender={(id) => approveRender.mutate({ renderId: id })}
-                    onRejectRender={(id, notes) => rejectRender.mutate({ renderId: id, notes })}
-                    onApprovePanorama={(id) => approvePanorama.mutate({ panoramaId: id })}
-                    onRejectPanorama={(id, notes) => rejectPanorama.mutate({ panoramaId: id, notes })}
-                    onApproveFinal360={(id) => approveFinal360.mutate({ final360Id: id })}
-                    onRejectFinal360={(id, notes) => rejectFinal360.mutate({ final360Id: id, notes })}
-                    onRetryRender={handleRetryRender}
-                    onRetryPanorama={handleRetryPanorama}
-                    onRetryFinal360={handleRetryFinal360}
-                    onExcludeSpace={(id) => excludeSpace.mutate({ spaceId: id })}
-                    onRestoreSpace={(id) => restoreSpace.mutate({ spaceId: id })}
-                    isRunning={isAnyMutationPending}
-                    // Per-space render control props
-                    availableReferenceImages={availableReferenceImages}
-                    onStartSpaceRender={(spaceId, referenceIds) => {
-                      setRenderingSpaceId(spaceId);
-                      runSingleSpaceRenders.mutate(
-                        {
-                          pipelineId: pipeline.id,
-                          spaceId,
-                          styledImageUploadId: styledImageUploadId || "",
-                          referenceImageIds: referenceIds,
-                        },
-                        {
-                          onSettled: () => setRenderingSpaceId(null),
-                          onSuccess: () => {
-                            toast({
-                              title: "Renders started",
-                              description: `Started rendering for ${space.name}`,
-                            });
-                          },
-                          onError: (error) => {
-                            toast({
-                              title: "Render failed",
-                              description: error instanceof Error ? error.message : "Unknown error",
-                              variant: "destructive",
-                            });
-                          },
-                        }
-                      );
-                    }}
-                    onUpdateSpaceReferences={(spaceId, referenceIds) => {
-                      updateSpaceReferences.mutate({ spaceId, referenceImageIds: referenceIds });
-                    }}
-                    isRenderingSpace={renderingSpaceId === space.id}
-                    isUpdatingRefs={updateSpaceReferences.isPending}
-                    hasMarker={
-                      markersLoading 
-                        ? true // Don't block during loading
-                        : (cameraMarkers?.some(m => m.room_id === space.id) ?? 
-                           // Fallback: if render records exist, assume marker existed
-                           !!(space.renders?.find(r => r.kind === "A" || r.kind === "B")))
-                    }
-                  />
-                ))}
-
-                {/* Stage Approval Gates - Show progress and gate Continue buttons */}
-                {activeSpaces.length > 0 && currentStep >= 5 && (
-                  <div className="space-y-3 mt-4">
-                    {/* Renders Approval Gate - shows only AFTER renders have actually been started */}
-                    {/* Must be in a renders phase (not camera_plan_confirmed) and have actual render activity */}
-                    {(phase === "renders_in_progress" || phase === "renders_review" || allRendersApproved) && (
-                      <StageApprovalGate
-                        stage="renders"
-                        spaces={spaces}
-                        onContinue={() => {
-                          advancePipeline.mutate({
-                            pipelineId: pipeline.id,
-                            fromStep: 5,
-                          });
-                        }}
-                        isPending={advancePipeline.isPending}
-                        disabled={!allRendersApproved}
-                        nextStageLabel="Continue to Panoramas"
-                      />
-                    )}
-                    
-                    {/* Panoramas Approval Gate - shows after panoramas start */}
-                    {allRendersApproved && (phase === "panoramas_in_progress" || phase === "panoramas_review" || allPanoramasApproved) && (
-                      <StageApprovalGate
-                        stage="panoramas"
-                        spaces={spaces}
-                        onContinue={() => {
-                          advancePipeline.mutate({
-                            pipelineId: pipeline.id,
-                            fromStep: 6,
-                          });
-                        }}
-                        isPending={advancePipeline.isPending}
-                        disabled={!allPanoramasApproved}
-                        nextStageLabel="Continue to Merge"
-                      />
-                    )}
-                    
-                    {/* Final 360 Approval Gate - shows after merges start */}
-                    {allPanoramasApproved && (phase === "merging_in_progress" || phase === "merging_review" || allFinal360sApproved) && (
-                      <StageApprovalGate
-                        stage="final360"
-                        spaces={spaces}
-                        onContinue={() => {
-                          // Mark pipeline as complete
-                          toast({
-                            title: "Pipeline Complete!",
-                            description: "All 360° panoramas have been generated and approved.",
-                          });
-                        }}
-                        isPending={false}
-                        disabled={!allFinal360sApproved}
-                        nextStageLabel="Complete Pipeline"
-                      />
-                    )}
-                  </div>
-                )}
-
-                {/* Excluded Spaces - Collapsed section with restore option */}
-                {excludedSpaces.length > 0 && (
-                  <Collapsible>
-                    <CollapsibleTrigger asChild>
-                      <Button 
-                        variant="ghost" 
-                        className="w-full justify-between h-auto py-2 text-muted-foreground hover:text-foreground"
-                      >
-                        <span className="text-sm flex items-center gap-2">
-                          <Box className="w-4 h-4 opacity-50" />
-                          Excluded Spaces ({excludedSpaces.length})
-                        </span>
-                        <ChevronDown className="w-4 h-4" />
-                      </Button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="space-y-2 pt-2">
-                      {excludedSpaces.map((space) => (
-                        <SpaceCard
-                          key={space.id}
-                          space={space}
-                          pipelineId={pipeline.id}
-                          styledImageUploadId={styledImageUploadId}
-                          pipelineRatio={pipeline.aspect_ratio || "16:9"}
-                          pipelineQuality={pipeline.output_resolution || "2K"}
-                          onRunRender={handleRunRender}
-                          onRunPanorama={handleRunPanorama}
-                          onRunMerge={handleRunMerge}
-                          onApproveRender={(id) => approveRender.mutate({ renderId: id })}
-                          onRejectRender={(id, notes) => rejectRender.mutate({ renderId: id, notes })}
-                          onApprovePanorama={(id) => approvePanorama.mutate({ panoramaId: id })}
-                          onRejectPanorama={(id, notes) => rejectPanorama.mutate({ panoramaId: id, notes })}
-                          onApproveFinal360={(id) => approveFinal360.mutate({ final360Id: id })}
-                          onRejectFinal360={(id, notes) => rejectFinal360.mutate({ final360Id: id, notes })}
-                          onRetryRender={handleRetryRender}
-                          onRetryPanorama={handleRetryPanorama}
-                          onRetryFinal360={handleRetryFinal360}
-                          onExcludeSpace={(id) => excludeSpace.mutate({ spaceId: id })}
-                          onRestoreSpace={(id) => restoreSpace.mutate({ spaceId: id })}
-                          isRunning={isAnyMutationPending}
-                          isExcluded={true}
-                        />
-                      ))}
-                    </CollapsibleContent>
-                  </Collapsible>
-                )}
-              </div>
-            </>
-          );
-        })()}
-
-        {/* Execution Terminal */}
-        {(() => {
-          // Determine current step name based on phase
-          // isLive should ONLY be true when pipeline is actively processing (API calls happening)
-          // NOT when waiting for user action (pending, review, etc.)
-          const isLive = phase.includes("running") || 
-            phase.includes("in_progress") ||
-            phase === "detecting_spaces" || 
-            pipeline.status === "running";
-          
-          const getCurrentStepName = () => {
-            if (phase.startsWith("space_analysis")) return "Space Analysis";
-            if (phase.startsWith("top_down_3d")) return "Top-Down 3D";
-            if (phase.startsWith("style")) return "Style Transfer";
-            if (phase.startsWith("camera_plan")) return "Camera Planning";
-            if (phase.startsWith("detect") || phase === "detecting_spaces") return "Detect Spaces";
-            if (phase.startsWith("spaces_detected")) return "Spaces Detected";
-            if (phase.startsWith("renders")) return "Renders";
-            if (phase.startsWith("panoramas")) return "Panoramas";
-            if (phase.startsWith("merging")) return "360° Merge";
-            return WHOLE_APARTMENT_STEP_NAMES[currentStep] || null;
-          };
-          
-          const currentStepName = getCurrentStepName();
-          
-          return (
-            <Collapsible open={terminalOpen} onOpenChange={setTerminalOpen}>
-              <CollapsibleTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  className="w-full justify-between h-auto py-2"
-                >
-                  <span className="text-sm font-medium flex items-center gap-2">
-                    <Terminal className="w-4 h-4" />
-                    Execution Log
-                    {isLive && (
-                      <Badge variant="outline" className="ml-2 text-xs bg-blue-500/10 text-blue-400 border-blue-500/30">
-                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                        Live
+                    {/* Dynamic Batch Action Button */}
+                    {currentStep < 3 ? (
+                      <Badge variant="outline" className="text-xs text-muted-foreground">
+                        <Lock className="w-3 h-3 mr-1" />
+                        Complete Step 3 first
                       </Badge>
+                    ) : batchAction ? (
+                      <Button
+                        size="sm"
+                        onClick={handleBatchAction}
+                        disabled={batchAction.disabled}
+                        variant={batchAction.action === "complete" ? "outline" : "default"}
+                        className={batchAction.action === "complete" ? "text-primary" : ""}
+                      >
+                        {isAnyMutationPending && batchAction.action !== "complete" ? (
+                          <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                        ) : (
+                          <batchAction.icon className="w-4 h-4 mr-1" />
+                        )}
+                        {batchAction.label}
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {spaces.length === 0 && currentStep >= 3 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Box className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No spaces detected yet</p>
+                      <p className="text-xs">Run "Detect Spaces" to begin</p>
+                    </div>
+                  )}
+
+                  {/* Active Spaces - Full functionality */}
+                  {activeSpaces.map((space) => (
+                    <SpaceCard
+                      key={space.id}
+                      space={space}
+                      pipelineId={pipeline.id}
+                      styledImageUploadId={styledImageUploadId}
+                      pipelineRatio={pipeline.aspect_ratio || "16:9"}
+                      pipelineQuality={pipeline.output_resolution || "2K"}
+                      onRunRender={handleRunRender}
+                      onRunPanorama={handleRunPanorama}
+                      onRunMerge={handleRunMerge}
+                      onApproveRender={(id) => approveRender.mutate({ renderId: id })}
+                      onRejectRender={(id, notes) => rejectRender.mutate({ renderId: id, notes })}
+                      onApprovePanorama={(id) => approvePanorama.mutate({ panoramaId: id })}
+                      onRejectPanorama={(id, notes) => rejectPanorama.mutate({ panoramaId: id, notes })}
+                      onApproveFinal360={(id) => approveFinal360.mutate({ final360Id: id })}
+                      onRejectFinal360={(id, notes) => rejectFinal360.mutate({ final360Id: id, notes })}
+                      onRetryRender={handleRetryRender}
+                      onRetryPanorama={handleRetryPanorama}
+                      onRetryFinal360={handleRetryFinal360}
+                      onExcludeSpace={(id) => excludeSpace.mutate({ spaceId: id })}
+                      onRestoreSpace={(id) => restoreSpace.mutate({ spaceId: id })}
+                      isRunning={isAnyMutationPending}
+                      // Per-space render control props
+                      availableReferenceImages={availableReferenceImages}
+                      onStartSpaceRender={(spaceId, referenceIds) => {
+                        setRenderingSpaceId(spaceId);
+                        runSingleSpaceRenders.mutate(
+                          {
+                            pipelineId: pipeline.id,
+                            spaceId,
+                            styledImageUploadId: styledImageUploadId || "",
+                            referenceImageIds: referenceIds,
+                          },
+                          {
+                            onSettled: () => setRenderingSpaceId(null),
+                            onSuccess: () => {
+                              toast({
+                                title: "Renders started",
+                                description: `Started rendering for ${space.name}`,
+                              });
+                            },
+                            onError: (error) => {
+                              toast({
+                                title: "Render failed",
+                                description: error instanceof Error ? error.message : "Unknown error",
+                                variant: "destructive",
+                              });
+                            },
+                          }
+                        );
+                      }}
+                      onUpdateSpaceReferences={(spaceId, referenceIds) => {
+                        updateSpaceReferences.mutate({ spaceId, referenceImageIds: referenceIds });
+                      }}
+                      isRenderingSpace={renderingSpaceId === space.id}
+                      isUpdatingRefs={updateSpaceReferences.isPending}
+                      hasMarker={
+                        markersLoading
+                          ? true // Don't block during loading
+                          : (cameraMarkers?.some(m => m.room_id === space.id) ??
+                            // Fallback: if render records exist, assume marker existed
+                            !!(space.renders?.find(r => r.kind === "A" || r.kind === "B")))
+                      }
+                    />
+                  ))}
+
+                  {/* Stage Approval Gates - Show progress and gate Continue buttons */}
+                  {activeSpaces.length > 0 && currentStep >= 5 && (
+                    <div className="space-y-3 mt-4">
+                      {/* Renders Approval Gate - shows only AFTER renders have actually been started */}
+                      {/* Must be in a renders phase (not camera_plan_confirmed) and have actual render activity */}
+                      {(phase === "renders_in_progress" || phase === "renders_review" || allRendersApproved) && (
+                        <StageApprovalGate
+                          stage="renders"
+                          spaces={spaces}
+                          onContinue={() => {
+                            advancePipeline.mutate({
+                              pipelineId: pipeline.id,
+                              fromStep: 5,
+                            });
+                          }}
+                          isPending={advancePipeline.isPending}
+                          disabled={!allRendersApproved}
+                          nextStageLabel="Continue to Panoramas"
+                        />
+                      )}
+
+                      {/* Panoramas Approval Gate - shows after panoramas start */}
+                      {allRendersApproved && (phase === "panoramas_in_progress" || phase === "panoramas_review" || allPanoramasApproved) && (
+                        <StageApprovalGate
+                          stage="panoramas"
+                          spaces={spaces}
+                          onContinue={() => {
+                            advancePipeline.mutate({
+                              pipelineId: pipeline.id,
+                              fromStep: 6,
+                            });
+                          }}
+                          isPending={advancePipeline.isPending}
+                          disabled={!allPanoramasApproved}
+                          nextStageLabel="Continue to Merge"
+                        />
+                      )}
+
+                      {/* Final 360 Approval Gate - shows after merges start */}
+                      {allPanoramasApproved && (phase === "merging_in_progress" || phase === "merging_review" || allFinal360sApproved) && (
+                        <StageApprovalGate
+                          stage="final360"
+                          spaces={spaces}
+                          onContinue={() => {
+                            // Mark pipeline as complete
+                            toast({
+                              title: "Pipeline Complete!",
+                              description: "All 360° panoramas have been generated and approved.",
+                            });
+                          }}
+                          isPending={false}
+                          disabled={!allFinal360sApproved}
+                          nextStageLabel="Complete Pipeline"
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Excluded Spaces - Collapsed section with restore option */}
+                  {excludedSpaces.length > 0 && (
+                    <Collapsible>
+                      <CollapsibleTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-between h-auto py-2 text-muted-foreground hover:text-foreground"
+                        >
+                          <span className="text-sm flex items-center gap-2">
+                            <Box className="w-4 h-4 opacity-50" />
+                            Excluded Spaces ({excludedSpaces.length})
+                          </span>
+                          <ChevronDown className="w-4 h-4" />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-2 pt-2">
+                        {excludedSpaces.map((space) => (
+                          <SpaceCard
+                            key={space.id}
+                            space={space}
+                            pipelineId={pipeline.id}
+                            styledImageUploadId={styledImageUploadId}
+                            pipelineRatio={pipeline.aspect_ratio || "16:9"}
+                            pipelineQuality={pipeline.output_resolution || "2K"}
+                            onRunRender={handleRunRender}
+                            onRunPanorama={handleRunPanorama}
+                            onRunMerge={handleRunMerge}
+                            onApproveRender={(id) => approveRender.mutate({ renderId: id })}
+                            onRejectRender={(id, notes) => rejectRender.mutate({ renderId: id, notes })}
+                            onApprovePanorama={(id) => approvePanorama.mutate({ panoramaId: id })}
+                            onRejectPanorama={(id, notes) => rejectPanorama.mutate({ panoramaId: id, notes })}
+                            onApproveFinal360={(id) => approveFinal360.mutate({ final360Id: id })}
+                            onRejectFinal360={(id, notes) => rejectFinal360.mutate({ final360Id: id, notes })}
+                            onRetryRender={handleRetryRender}
+                            onRetryPanorama={handleRetryPanorama}
+                            onRetryFinal360={handleRetryFinal360}
+                            onExcludeSpace={(id) => excludeSpace.mutate({ spaceId: id })}
+                            onRestoreSpace={(id) => restoreSpace.mutate({ spaceId: id })}
+                            isRunning={isAnyMutationPending}
+                            isExcluded={true}
+                          />
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+
+          {/* Execution Terminal */}
+          {(() => {
+            // Determine current step name based on phase
+            // isLive should ONLY be true when pipeline is actively processing (API calls happening)
+            // NOT when waiting for user action (pending, review, etc.)
+            const isLive = phase.includes("running") ||
+              phase.includes("in_progress") ||
+              phase === "detecting_spaces" ||
+              pipeline.status === "running";
+
+            const getCurrentStepName = () => {
+              if (phase.startsWith("space_analysis")) return "Space Analysis";
+              if (phase.startsWith("top_down_3d")) return "Top-Down 3D";
+              if (phase.startsWith("style")) return "Style Transfer";
+              if (phase.startsWith("camera_plan")) return "Camera Planning";
+              if (phase.startsWith("detect") || phase === "detecting_spaces") return "Detect Spaces";
+              if (phase.startsWith("spaces_detected")) return "Spaces Detected";
+              if (phase.startsWith("renders")) return "Renders";
+              if (phase.startsWith("panoramas")) return "Panoramas";
+              if (phase.startsWith("merging")) return "360° Merge";
+              return WHOLE_APARTMENT_STEP_NAMES[currentStep] || null;
+            };
+
+            const currentStepName = getCurrentStepName();
+
+            return (
+              <Collapsible open={terminalOpen} onOpenChange={setTerminalOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-between h-auto py-2"
+                  >
+                    <span className="text-sm font-medium flex items-center gap-2">
+                      <Terminal className="w-4 h-4" />
+                      Execution Log
+                      {isLive && (
+                        <Badge variant="outline" className="ml-2 text-xs bg-blue-500/10 text-blue-400 border-blue-500/30">
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          Live
+                        </Badge>
+                      )}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {currentStepName && isLive && (
+                        <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                          {currentStepName}
+                        </Badge>
+                      )}
+                      <ChevronDown
+                        className={`w-4 h-4 transition-transform ${terminalOpen ? "rotate-180" : ""
+                          }`}
+                      />
+                    </div>
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <FloorPlanPipelineTerminal
+                    pipelineId={pipeline.id}
+                    isOpen={terminalOpen}
+                    currentStepName={currentStepName}
+                    isLive={isLive}
+                  />
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })()}
+
+          {/* Debug Info Panel */}
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full justify-start text-xs text-muted-foreground h-7">
+                <Eye className="w-3 h-3 mr-1" />
+                Debug Info
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="text-xs font-mono bg-muted/50 p-2 rounded mt-1 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">current_step:</span>
+                  <span className="font-medium">{currentStep}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">status:</span>
+                  <span className="font-medium">{pipeline.status}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">phase:</span>
+                  <span className="font-medium">{phase}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">spaces:</span>
+                  <span className="font-medium">
+                    {progressDetails?.totalSpaces ?? 0} active
+                    {(progressDetails?.excludedCount ?? 0) > 0 && (
+                      <span className="text-muted-foreground ml-1">
+                        ({progressDetails?.excludedCount} excluded)
+                      </span>
                     )}
                   </span>
-                  <div className="flex items-center gap-2">
-                    {currentStepName && isLive && (
-                      <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
-                        {currentStepName}
+                  {(() => {
+                    const duplicates = spaces.filter((s, i, arr) =>
+                      arr.findIndex(x => x.name === s.name) !== i
+                    );
+                    return duplicates.length > 0 ? (
+                      <Badge variant="destructive" className="text-[10px] px-1 py-0">
+                        {duplicates.length} duplicates!
                       </Badge>
-                    )}
-                    <ChevronDown
-                      className={`w-4 h-4 transition-transform ${
-                        terminalOpen ? "rotate-180" : ""
-                      }`}
-                    />
-                  </div>
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <FloorPlanPipelineTerminal
-                  pipelineId={pipeline.id}
-                  isOpen={terminalOpen}
-                  currentStepName={currentStepName}
-                  isLive={isLive}
-                />
-              </CollapsibleContent>
-            </Collapsible>
-          );
-        })()}
-
-        {/* Debug Info Panel */}
-        <Collapsible>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="w-full justify-start text-xs text-muted-foreground h-7">
-              <Eye className="w-3 h-3 mr-1" />
-              Debug Info
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="text-xs font-mono bg-muted/50 p-2 rounded mt-1 space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">current_step:</span>
-                <span className="font-medium">{currentStep}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">status:</span>
-                <span className="font-medium">{pipeline.status}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">phase:</span>
-                <span className="font-medium">{phase}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">spaces:</span>
-                <span className="font-medium">
-                  {progressDetails?.totalSpaces ?? 0} active
-                  {(progressDetails?.excludedCount ?? 0) > 0 && (
-                    <span className="text-muted-foreground ml-1">
-                      ({progressDetails?.excludedCount} excluded)
-                    </span>
-                  )}
-                </span>
-                {(() => {
-                  const duplicates = spaces.filter((s, i, arr) => 
-                    arr.findIndex(x => x.name === s.name) !== i
-                  );
-                  return duplicates.length > 0 ? (
-                    <Badge variant="destructive" className="text-[10px] px-1 py-0">
-                      {duplicates.length} duplicates!
-                    </Badge>
-                  ) : null;
-                })()}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">isRunning:</span>
-                <span className="font-medium">{isRunning ? "true" : "false"}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">isAnyMutationPending:</span>
-                <span className="font-medium">{isAnyMutationPending ? "true" : "false"}</span>
-              </div>
-              {lastAction && (
+                    ) : null;
+                  })()}
+                </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">last_action:</span>
-                  <span className="font-medium">{lastAction.type} @ {new Date(lastAction.ts).toLocaleTimeString()}</span>
+                  <span className="text-muted-foreground">isRunning:</span>
+                  <span className="font-medium">{isRunning ? "true" : "false"}</span>
                 </div>
-              )}
-              {pipeline.last_error && (
-                <div className="flex items-start gap-2 text-destructive">
-                  <span className="text-muted-foreground">last_error:</span>
-                  <span className="font-medium break-all">{pipeline.last_error}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">isAnyMutationPending:</span>
+                  <span className="font-medium">{isAnyMutationPending ? "true" : "false"}</span>
                 </div>
-              )}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+                {lastAction && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">last_action:</span>
+                    <span className="font-medium">{lastAction.type} @ {new Date(lastAction.ts).toLocaleTimeString()}</span>
+                  </div>
+                )}
+                {pipeline.last_error && (
+                  <div className="flex items-start gap-2 text-destructive">
+                    <span className="text-muted-foreground">last_error:</span>
+                    <span className="font-medium break-all">{pipeline.last_error}</span>
+                  </div>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
 
-        {/* Error display */}
-        {pipeline.last_error && (
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
-            <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-destructive">Error</p>
-              <p className="text-xs text-muted-foreground">{pipeline.last_error}</p>
+          {/* Error display */}
+          {pipeline.last_error && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+              <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-destructive">Error</p>
+                <p className="text-xs text-muted-foreground">{pipeline.last_error}</p>
+              </div>
             </div>
-          </div>
-        )}
-      </CardContent>
+          )}
+        </CardContent>
 
         {/* Settings Drawer */}
         <PipelineSettingsDrawer
@@ -3364,15 +3398,15 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
         spaceCount={spaces.filter(s => !s.is_excluded && s.include_in_generation !== false).length}
         isPending={runBatchMerges.isPending}
         onConfirm={(quality) => {
-          runBatchMerges.mutate({ 
-            pipelineId: pipeline.id, 
-            mergeQuality: quality 
+          runBatchMerges.mutate({
+            pipelineId: pipeline.id,
+            mergeQuality: quality
           });
           setStep7SettingsOpen(false);
           setTerminalOpen(true);
-          toast({ 
-            title: `Starting merges (${quality})`, 
-            description: `Processing ${spaces.filter(s => !s.is_excluded && s.include_in_generation !== false).length} final 360s...` 
+          toast({
+            title: `Starting merges (${quality})`,
+            description: `Processing ${spaces.filter(s => !s.is_excluded && s.include_in_generation !== false).length} final 360s...`
           });
         }}
       />

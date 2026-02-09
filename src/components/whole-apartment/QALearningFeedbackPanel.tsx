@@ -157,8 +157,8 @@ export const QALearningFeedbackPanel = memo(function QALearningFeedbackPanel({
             Step {stepNumber}
           </Badge>
         </div>
-        <Badge 
-          variant={isExhausted ? "destructive" : "secondary"} 
+        <Badge
+          variant={isExhausted ? "destructive" : "secondary"}
           className="text-xs"
         >
           Attempt {attemptNumber}/{maxAttempts}
@@ -168,11 +168,11 @@ export const QALearningFeedbackPanel = memo(function QALearningFeedbackPanel({
       {/* AI QA Status */}
       <div className={cn(
         "p-2 rounded-md text-sm",
-        aiQaStatus === "approved" 
-          ? "bg-primary/10 border border-primary/30" 
+        aiQaStatus === "approved"
+          ? "bg-primary/10 border border-primary/30"
           : aiQaStatus === "rejected"
-          ? "bg-destructive/10 border border-destructive/30"
-          : "bg-muted/50 border border-border/30"
+            ? "bg-destructive/10 border border-destructive/30"
+            : "bg-muted/50 border border-border/30"
       )}>
         <div className="flex items-center gap-2 mb-1">
           {aiQaStatus === "approved" ? (
@@ -184,14 +184,14 @@ export const QALearningFeedbackPanel = memo(function QALearningFeedbackPanel({
           )}
           <span className={cn(
             "font-medium text-xs",
-            aiQaStatus === "approved" ? "text-primary" : 
-            aiQaStatus === "rejected" ? "text-destructive" : 
-            "text-muted-foreground"
+            aiQaStatus === "approved" ? "text-primary" :
+              aiQaStatus === "rejected" ? "text-destructive" :
+                "text-muted-foreground"
           )}>
             AI-QA: {aiQaStatus === "approved" ? "Passed" : aiQaStatus === "rejected" ? "Failed" : "Pending"}
           </span>
         </div>
-        
+
         {/* AI Rejection Reasons */}
         {aiQaStatus === "rejected" && aiRejectionReasons.length > 0 && (
           <ul className="text-xs text-muted-foreground space-y-0.5 ml-5 list-disc">
@@ -263,11 +263,11 @@ export const QALearningFeedbackPanel = memo(function QALearningFeedbackPanel({
             </SelectContent>
           </Select>
           <Textarea
-            placeholder="Optional: Why is this acceptable? (max 200 chars)"
+            placeholder="Optional: Why is this acceptable? (max 500 chars)"
             value={approvalComment}
-            onChange={(e) => setApprovalComment(e.target.value.slice(0, 200))}
+            onChange={(e) => setApprovalComment(e.target.value.slice(0, 500))}
             className="h-16 text-xs resize-none"
-            maxLength={200}
+            maxLength={500}
           />
           <div className="flex gap-2">
             <Button
@@ -321,35 +321,41 @@ export const QALearningFeedbackPanel = memo(function QALearningFeedbackPanel({
           <Textarea
             placeholder="Describe the issue in detail (required)..."
             value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
+            onChange={(e) => setRejectReason(e.target.value.slice(0, 500))}
             className="h-20 text-xs resize-none"
+            maxLength={500}
             required
           />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setShowRejectForm(false);
-                setRejectReason("");
-              }}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={handleReject}
-              disabled={isSubmitting || !rejectReason.trim()}
-            >
-              {isSubmitting ? (
-                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-              ) : (
-                <ThumbsDown className="w-4 h-4 mr-1" />
-              )}
-              Submit & Retry
-            </Button>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground">
+              {rejectReason.length}/500
+            </span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setShowRejectForm(false);
+                  setRejectReason("");
+                }}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleReject}
+                disabled={isSubmitting || !rejectReason.trim()}
+              >
+                {isSubmitting ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <ThumbsDown className="w-4 h-4 mr-1" />
+                )}
+                Submit & Retry
+              </Button>
+            </div>
           </div>
         </div>
       )}

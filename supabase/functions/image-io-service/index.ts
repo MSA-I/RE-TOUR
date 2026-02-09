@@ -13,7 +13,7 @@ const corsHeaders = {
 
 type ImageRole = "input" | "output" | "reference" | "preview";
 type QualityTier = "1K" | "2K" | "4K";
-type AspectRatio = "1:1" | "4:3" | "16:9" | "2:1";
+type AspectRatio = "1:1" | "4:3" | "16:9" | "2:1" | "21:9";
 
 interface ImageIOImage {
   upload_id: string;
@@ -46,7 +46,7 @@ const RULE_GATES = {
   MAX_ORIGINAL_SIZE_BYTES: 50 * 1024 * 1024,  // 50MB
   URL_EXPIRY_SECONDS: 3600,                    // 1 hour
   ALLOWED_MIME_TYPES: ["image/jpeg", "image/png", "image/webp"],
-  
+
   // Steps 0-3 ALWAYS use 2K
   STEP_QUALITY_OVERRIDE: { 0: "2K", 1: "2K", 2: "2K", 3: "2K" } as Record<number, QualityTier>,
 };
@@ -99,10 +99,10 @@ interface GetStepImagesRequest {
   ratio?: AspectRatio;
 }
 
-type ImageIORequest = 
-  | GetPreviewUrlRequest 
-  | GetOriginalUrlRequest 
-  | GetMetadataRequest 
+type ImageIORequest =
+  | GetPreviewUrlRequest
+  | GetOriginalUrlRequest
+  | GetMetadataRequest
   | CreatePreviewRequest
   | GetBatchUrlsRequest
   | GetStepImagesRequest;
@@ -137,7 +137,7 @@ serve(async (req) => {
   }
 
   const startTime = Date.now();
-  
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -164,22 +164,22 @@ serve(async (req) => {
     switch (body.action) {
       case "get_preview_url":
         return await handleGetPreviewUrl(supabase, userId, body);
-      
+
       case "get_original_url":
         return await handleGetOriginalUrl(supabase, userId, body);
-      
+
       case "get_metadata":
         return await handleGetMetadata(supabase, userId, body);
-      
+
       case "create_preview":
         return await handleCreatePreview(supabase, userId, body);
-      
+
       case "get_batch_urls":
         return await handleGetBatchUrls(supabase, userId, body);
-      
+
       case "get_step_images":
         return await handleGetStepImages(supabase, userId, body, startTime);
-      
+
       default:
         return jsonError(`Unknown action: ${(body as any).action}`, 400);
     }
@@ -194,8 +194,8 @@ serve(async (req) => {
 // ============================================================================
 
 async function handleGetPreviewUrl(
-  supabase: any, 
-  userId: string, 
+  supabase: any,
+  userId: string,
   request: GetPreviewUrlRequest
 ): Promise<Response> {
   const { upload_id, max_width = 1024, expires_in = 3600 } = request;
@@ -223,7 +223,7 @@ async function handleGetPreviewUrl(
       .select("id, bucket, path")
       .eq("id", upload.preview_upload_id)
       .single();
-    
+
     if (preview) {
       targetUpload = preview;
     }
@@ -249,8 +249,8 @@ async function handleGetPreviewUrl(
 }
 
 async function handleGetOriginalUrl(
-  supabase: any, 
-  userId: string, 
+  supabase: any,
+  userId: string,
   request: GetOriginalUrlRequest
 ): Promise<Response> {
   const { upload_id, expires_in = 3600 } = request;
@@ -278,7 +278,7 @@ async function handleGetOriginalUrl(
       .select("id, bucket, path")
       .eq("preview_upload_id", upload_id)
       .single();
-    
+
     if (original) {
       targetUpload = original;
     }
@@ -303,8 +303,8 @@ async function handleGetOriginalUrl(
 }
 
 async function handleGetMetadata(
-  supabase: any, 
-  userId: string, 
+  supabase: any,
+  userId: string,
   request: GetMetadataRequest
 ): Promise<Response> {
   const { upload_id } = request;
@@ -352,8 +352,8 @@ async function handleGetMetadata(
 }
 
 async function handleCreatePreview(
-  supabase: any, 
-  userId: string, 
+  supabase: any,
+  userId: string,
   request: CreatePreviewRequest
 ): Promise<Response> {
   const { upload_id, max_width = 1024, max_height = 1024, quality = 80 } = request;
@@ -400,10 +400,10 @@ async function handleCreatePreview(
     // Get image dimensions and create preview
     const originalBuffer = await fileData.arrayBuffer();
     const originalBytes = new Uint8Array(originalBuffer);
-    
+
     // Extract dimensions from image header
     const dimensions = getImageDimensions(originalBytes);
-    
+
     // Calculate file hash
     const hashBuffer = await crypto.subtle.digest("SHA-256", originalBytes);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -434,7 +434,7 @@ async function handleCreatePreview(
     });
   } catch (err) {
     console.error("[create_preview] Error:", err);
-    
+
     await supabase
       .from("uploads")
       .update({ processing_status: "failed" })
@@ -445,8 +445,8 @@ async function handleCreatePreview(
 }
 
 async function handleGetBatchUrls(
-  supabase: any, 
-  userId: string, 
+  supabase: any,
+  userId: string,
   request: GetBatchUrlsRequest
 ): Promise<Response> {
   const { upload_ids, url_type, expires_in = 3600 } = request;
@@ -473,7 +473,7 @@ async function handleGetBatchUrls(
 
   for (const uploadId of upload_ids) {
     const upload = uploads?.find((u: any) => u.id === uploadId);
-    
+
     if (!upload) {
       results.push({ upload_id: uploadId, signed_url: null, expires_at: null, error: "Not found" });
       continue;
@@ -558,7 +558,7 @@ async function handleGetStepImages(
 
   for (const uploadId of upload_ids) {
     const upload = uploads?.find((u: any) => u.id === uploadId);
-    
+
     if (!upload) {
       validationErrors.push(`Upload ${uploadId} not found`);
       continue;
@@ -571,7 +571,7 @@ async function handleGetStepImages(
 
     // RULE: Check file size limits
     if (upload.size_bytes && upload.size_bytes > RULE_GATES.MAX_ORIGINAL_SIZE_BYTES) {
-      validationErrors.push(`Upload ${uploadId} exceeds ${RULE_GATES.MAX_ORIGINAL_SIZE_BYTES / (1024*1024)}MB limit`);
+      validationErrors.push(`Upload ${uploadId} exceeds ${RULE_GATES.MAX_ORIGINAL_SIZE_BYTES / (1024 * 1024)}MB limit`);
       continue;
     }
 
@@ -599,7 +599,7 @@ async function handleGetStepImages(
     // Determine role based on kind or step context
     let role: ImageRole = "input";
     if (upload.is_preview) role = "preview";
-    
+
     // CRITICAL: Verify no base64 in URLs
     if (previewUrlData.signedUrl.startsWith('data:')) {
       validationErrors.push(`FORBIDDEN: base64 URL detected for ${uploadId}`);
@@ -654,7 +654,7 @@ async function handleGetStepImages(
  * Internal validation for ImageIOOutput
  */
 function validateImageIOOutputInternal(
-  output: ImageIOOutput, 
+  output: ImageIOOutput,
   stepIndex: number
 ): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
@@ -732,17 +732,17 @@ function getImageDimensions(data: Uint8Array): { width: number; height: number }
       while (offset < data.length - 8) {
         if (data[offset] !== 0xFF) break;
         const marker = data[offset + 1];
-        
+
         // SOF markers (Start of Frame)
-        if ((marker >= 0xC0 && marker <= 0xC3) || 
-            (marker >= 0xC5 && marker <= 0xC7) ||
-            (marker >= 0xC9 && marker <= 0xCB) ||
-            (marker >= 0xCD && marker <= 0xCF)) {
+        if ((marker >= 0xC0 && marker <= 0xC3) ||
+          (marker >= 0xC5 && marker <= 0xC7) ||
+          (marker >= 0xC9 && marker <= 0xCB) ||
+          (marker >= 0xCD && marker <= 0xCF)) {
           const height = (data[offset + 5] << 8) | data[offset + 6];
           const width = (data[offset + 7] << 8) | data[offset + 8];
           return { width, height };
         }
-        
+
         // Skip to next marker
         const length = (data[offset + 2] << 8) | data[offset + 3];
         offset += 2 + length;
@@ -751,7 +751,7 @@ function getImageDimensions(data: Uint8Array): { width: number; height: number }
 
     // Check WebP signature
     if (data[0] === 0x52 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x46 &&
-        data[8] === 0x57 && data[9] === 0x45 && data[10] === 0x42 && data[11] === 0x50) {
+      data[8] === 0x57 && data[9] === 0x45 && data[10] === 0x42 && data[11] === 0x50) {
       // VP8 format
       if (data[12] === 0x56 && data[13] === 0x50 && data[14] === 0x38 && data[15] === 0x20) {
         const width = ((data[26] | (data[27] << 8)) & 0x3FFF);

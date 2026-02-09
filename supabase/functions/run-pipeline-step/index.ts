@@ -1611,13 +1611,50 @@ serve(async (req) => {
       throw new Error("Input image not found");
     }
 
-    const { data: signedUrlData } = await supabaseAdmin.storage
-      .from(inputUpload.bucket)
-      .createSignedUrl(inputUpload.path, 3600);
+    // ═══════════════════════════════════════════════════════════════
+    // AGGRESSIVE SERVER-SIDE IMAGE DOWNSCALING (Steps 1-4)
+    // ═══════════════════════════════════════════════════════════════
+    // CRITICAL: Apply transformation WHEN creating signed URL (not after)
+    // Supabase requires transform options passed to createSignedUrl()
+    // Adding params to URL afterwards doesn't work with signed URLs
+    // ═══════════════════════════════════════════════════════════════
+    const shouldDownscale = currentStep >= 1 && currentStep <= 4;
 
-    if (!signedUrlData?.signedUrl) {
-      throw new Error("Failed to get signed URL for input image");
+    // Create signed URL with transformations for Steps 1-4
+    const signedUrlOptions: any = {};
+    if (shouldDownscale) {
+      console.log(`[IMAGE_DOWNSCALE] Step ${currentStep}: Creating signed URL with AGGRESSIVE transformations`);
+      // Note: Supabase Storage transformations support 'origin' (keeps format)
+      // Don't specify format to preserve original format while applying resize/quality
+      signedUrlOptions.transform = {
+        width: 1600,
+        height: 1600,
+        quality: 60,
+        // format not specified = use original format (webp stays webp, png stays png, etc)
+      };
+      console.log(`[IMAGE_DOWNSCALE] Transform options:`, signedUrlOptions.transform);
     }
+
+    const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin.storage
+      .from(inputUpload.bucket)
+      .createSignedUrl(inputUpload.path, 3600, signedUrlOptions);
+
+    if (signedUrlError || !signedUrlData?.signedUrl) {
+      console.error("[IMAGE_DOWNSCALE] Failed to create signed URL:", {
+        error: signedUrlError,
+        bucket: inputUpload.bucket,
+        path: inputUpload.path,
+        uploadId: inputUploadId,
+      });
+      throw new Error(
+        `Failed to get signed URL for input image: ${signedUrlError?.message || "Unknown error"}. ` +
+        `Bucket: ${inputUpload.bucket}, Path: ${inputUpload.path}. ` +
+        `Check that the file exists in storage and storage is properly configured.`
+      );
+    }
+
+    const imageUrl = signedUrlData.signedUrl;
+    console.log(`[IMAGE_DOWNSCALE] Signed URL created: ${imageUrl.substring(0, 120)}...`);
 
     await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "download_complete", "Input image loaded", (currentStep - 1) * 25 + 5);
 
@@ -1625,39 +1662,6 @@ serve(async (req) => {
     const inputSignedUrl = signedUrlData.signedUrl;
 
     logMemory("before-load-input");
-
-    // ═══════════════════════════════════════════════════════════════
-    // AGGRESSIVE SERVER-SIDE IMAGE DOWNSCALING (Steps 1-4)
-    // ═══════════════════════════════════════════════════════════════
-    // CRITICAL: Apply aggressive compression BEFORE loading into memory
-    // to prevent "Memory limit exceeded" errors in Edge Function environment.
-    //
-    // Strategy: Much more aggressive than client-side compression
-    // - Target: 1600px max (vs 2400px client-side)
-    // - Quality: 60 (vs 80 client-side)
-    // - Reason: Server memory is MORE limited than client browser
-    // ═══════════════════════════════════════════════════════════════
-
-    let imageUrl = signedUrlData.signedUrl;
-    let shouldDownscale = currentStep >= 1 && currentStep <= 4;
-
-    // For Steps 1-4, apply AGGRESSIVE image transformation
-    if (shouldDownscale) {
-      console.log(`[IMAGE_DOWNSCALE] Step ${currentStep}: Applying AGGRESSIVE server-side downscaling`);
-      console.log(`[IMAGE_DOWNSCALE] Original URL: ${imageUrl.substring(0, 120)}...`);
-
-      const url = new URL(imageUrl);
-
-      // AGGRESSIVE parameters to ensure memory safety
-      url.searchParams.set('width', '1600');      // Reduced from 2400 to 1600
-      url.searchParams.set('height', '1600');     // Also limit height
-      url.searchParams.set('quality', '60');      // Reduced from 80 to 60
-      url.searchParams.set('format', 'webp');     // WebP for better compression
-
-      imageUrl = url.toString();
-      console.log(`[IMAGE_DOWNSCALE] Transformed URL: ${imageUrl.substring(0, 120)}...`);
-      console.log(`[IMAGE_DOWNSCALE] Transformations: width=1600, height=1600, quality=60, format=webp`);
-    }
 
     // Download image bytes (with transformations applied if Step 1-4)
     console.log(`[IMAGE_DOWNSCALE] Fetching image...`);

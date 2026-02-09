@@ -19,8 +19,9 @@ export function useUploads(projectId: string, kind?: "panorama" | "design_ref" |
         .from("uploads")
         .select("*")
         .eq("project_id", projectId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: true });
-      
+
       if (kind) {
         query = query.eq("kind", kind);
       }
@@ -33,24 +34,21 @@ export function useUploads(projectId: string, kind?: "panorama" | "design_ref" |
   });
 
   const createUpload = useMutation({
-    mutationFn: async ({ 
-      file, 
-      kind: uploadKind 
-    }: { 
-      file: File; 
-      kind: "panorama" | "design_ref" | "floor_plan" 
+    // ... (rest of the createUpload mutation remains same)
+    mutationFn: async ({
+      file,
+      kind: uploadKind
+    }: {
+      file: File;
+      kind: "panorama" | "design_ref" | "floor_plan"
     }) => {
       if (!user) throw new Error("Not authenticated");
 
-      // REMOVED: Automatic downscaling - we now preserve ORIGINAL quality
-      // The Gemini API supports up to ~100MB per request, so no need to downscale uploads
-      // User uploads are stored at full resolution; previews are generated separately
       console.log(`Preparing upload (ORIGINAL quality): ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB)`);
-      
+
       const bucket = uploadKind === "panorama" ? "panoramas" : uploadKind === "design_ref" ? "design_refs" : "floor_plans";
-      // Path must start with user_id to match RLS policies
-      const path = `${user.id}/${projectId}/${crypto.randomUUID()}-${file.name}`;
-      
+      const path = `${user.id}/${projectId}/${crypto.randomUUID()}-${file.name.replace(/[^\w\.-]/g, "_")}`;
+
       try {
         await uploadFile(bucket, path, file);
       } catch (uploadError) {
@@ -81,18 +79,34 @@ export function useUploads(projectId: string, kind?: "panorama" | "design_ref" |
     }
   });
 
+  const softDeleteUpload = useMutation({
+    mutationFn: async (uploadIds: string[]) => {
+      const { error } = await supabase
+        .from("uploads")
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: user?.id
+        })
+        .in("id", uploadIds);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["uploads", projectId] });
+    }
+  });
+
   const deleteUpload = useMutation({
     mutationFn: async (upload: Upload) => {
-      // Delete from storage first
+      // Keep hard-delete for specific scenarios if needed, but UI should use softDelete
       const { error: storageError } = await supabase.storage
         .from(upload.bucket)
         .remove([upload.path]);
-      
+
       if (storageError) {
         console.error("Storage delete error:", storageError);
       }
 
-      // Delete from database
       const { error } = await supabase.from("uploads").delete().eq("id", upload.id);
       if (error) throw error;
     },
@@ -106,6 +120,7 @@ export function useUploads(projectId: string, kind?: "panorama" | "design_ref" |
     isLoading: uploadsQuery.isLoading,
     error: uploadsQuery.error,
     createUpload,
+    softDeleteUpload,
     deleteUpload
   };
 }

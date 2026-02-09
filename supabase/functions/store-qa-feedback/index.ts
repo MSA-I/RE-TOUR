@@ -47,7 +47,7 @@ serve(async (req) => {
 
     const token = authHeader.replace("Bearer ", "");
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    
+
     const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
     if (claimsError || !claimsData?.claims) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -79,7 +79,7 @@ serve(async (req) => {
         image_id: body.imageId,
         user_decision: body.userDecision,
         user_category: body.userCategory,
-        user_reason_short: body.userReasonShort.slice(0, 200),
+        user_reason_short: body.userReasonShort.slice(0, 500),
         qa_original_status: body.qaOriginalStatus,
         qa_original_reasons: body.qaOriginalReasons,
         context_snapshot: body.contextSnapshot,
@@ -276,14 +276,14 @@ serve(async (req) => {
 function calculateSimpleSimilarity(text1: string, text2: string): number {
   const words1 = new Set(text1.split(/\s+/).filter(w => w.length > 3));
   const words2 = new Set(text2.split(/\s+/).filter(w => w.length > 3));
-  
+
   if (words1.size === 0 || words2.size === 0) return 0;
-  
+
   let intersection = 0;
   for (const word of words1) {
     if (words2.has(word)) intersection++;
   }
-  
+
   const union = words1.size + words2.size - intersection;
   return intersection / union;
 }

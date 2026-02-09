@@ -2,7 +2,33 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:deno.land)"
+      "WebFetch(domain:deno.land)",
+      "Bash(test:*)",
+      "Bash(npx supabase:*)",
+      "Bash(npm search:*)",
+      "WebFetch(domain:registry.modelcontextprotocol.io)",
+      "Bash(pip install:*)",
+      "Bash(npx -y @smithery/cli install:*)",
+      "Bash(npx:*)",
+      "Bash(node --version:*)",
+      "Bash(git clone:*)",
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(echo:*)",
+      "Bash(powershell -c \"irm bun.sh/install.ps1 | iex\")",
+      "Bash(export PATH=\"$PATH:/c/Users/User/.bun/bin\")",
+      "Bash(bun:*)",
+      "Bash(bun run build)",
+      "Bash(~/supabase-mcp/dist/index.js --help)",
+      "Bash(git diff:*)",
+      "mcp__supabase__execute_sql",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: prevent verbatim user notes from being injected into QA retry prompts\n\nProblem: User rejection notes were being copied verbatim into retry\ngeneration prompts, causing prompt pollution and inconsistent behavior.\n\nSolution: Convert all user feedback to structured patterns/categories.\n\nChanges:\n- analyze-rejection: Extract rejection patterns, not verbatim text\n- optimize-pipeline-prompt: Use sentiment analysis instead of raw comments\n- human-feedback-memory: Show pattern tags [extra_furniture, camera_mismatch]\n  instead of verbatim quotes\n\nFiles modified:\n- supabase/functions/analyze-rejection/index.ts\n- supabase/functions/optimize-pipeline-prompt/index.ts\n- supabase/functions/_shared/human-feedback-memory.ts\n- docs/QA_FEEDBACK_FIX_SUMMARY.md \\(new\\)\n- docs/QA_FEEDBACK_FIX_DELIVERABLES.md \\(new\\)\n\nTesting: User note \"\"Too much clutter\"\" now becomes pattern [extra_furniture,\nminimalism_preference] in retry prompts, not verbatim text.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: add comprehensive Langfuse tracing diagnostics\n\nAdded diagnostic logging to identify why Langfuse traces aren''t appearing.\nAll changes are temporary and non-blocking - pipeline continues if Langfuse fails.\n\nChanges:\n- langfuse-client.ts: Added diagnostic logs for config, trace, generation, and flush\n- run-space-analysis.ts: Added connectivity test and trace creation diagnostics\n- verify-langfuse-config \\(new\\): Dedicated endpoint to check Langfuse configuration\n- LANGFUSE_DIAGNOSTIC_GUIDE.md \\(new\\): Complete diagnostic and troubleshooting guide\n- LANGFUSE_RESTORE_SUMMARY.md \\(new\\): Implementation summary and action items\n\nDiagnostic logs show:\n- Environment variable status \\(safe - no secrets logged\\)\n- Connectivity test results\n- Trace/generation creation status\n- Event queue and flush operations\n- HTTP response codes from Langfuse API\n\nNext steps:\n1. Run: npx supabase functions invoke verify-langfuse-config\n2. Check run-space-analysis logs for [LANGFUSE_DIAGNOSTIC] entries\n3. Fix any identified issues \\(env vars, connectivity, etc.\\)\n4. Remove diagnostic logs once working\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }

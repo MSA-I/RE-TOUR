@@ -17,11 +17,11 @@ interface RequestBody {
   qaReasons: unknown[];
   userVote: "like" | "dislike";
   userCategory:
-    | "furniture_scale"
-    | "extra_furniture"
-    | "structural_change"
-    | "flooring_mismatch"
-    | "other";
+  | "furniture_scale"
+  | "extra_furniture"
+  | "structural_change"
+  | "flooring_mismatch"
+  | "other";
   userCommentShort: string;
   contextSnapshot: Record<string, unknown>;
 }
@@ -90,7 +90,7 @@ serve(async (req) => {
         .update({
           user_vote: body.userVote,
           user_category: body.userCategory,
-          user_comment_short: body.userCommentShort?.slice(0, 200) || null,
+          user_comment_short: body.userCommentShort?.slice(0, 500) || null,
           qa_reasons: body.qaReasons,
           context_snapshot: body.contextSnapshot,
         })
@@ -117,7 +117,7 @@ serve(async (req) => {
           qa_reasons: body.qaReasons,
           user_vote: body.userVote,
           user_category: body.userCategory,
-          user_comment_short: body.userCommentShort?.slice(0, 200) || null,
+          user_comment_short: body.userCommentShort?.slice(0, 500) || null,
           context_snapshot: body.contextSnapshot,
         })
         .select("id")
@@ -159,13 +159,13 @@ serve(async (req) => {
 
     if (existingStats) {
       const updates: Record<string, number> = {};
-      
+
       // Weight the update based on user score if available
       // Low scores (< 40) = stronger signal, High scores (> 80) = weaker signal for false_approve
-      const weight = userScore !== null 
+      const weight = userScore !== null
         ? (calibrationType === "false_approve" && userScore < 40 ? 2 : 1)
         : 1;
-      
+
       if (calibrationType === "false_reject") {
         updates.false_reject_count = (existingStats.false_reject_count || 0) + weight;
       } else if (calibrationType === "false_approve") {
@@ -182,7 +182,7 @@ serve(async (req) => {
     } else {
       // Weight initial counts based on user score
       const weight = userScore !== null && userScore < 40 ? 2 : 1;
-      
+
       await supabase.from("qa_calibration_stats").insert({
         owner_id: ownerId,
         project_id: body.projectId,
