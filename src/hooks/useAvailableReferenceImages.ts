@@ -40,7 +40,8 @@ export function useAvailableReferenceImages(pipelineId: string | undefined) {
           ),
           output:uploads!floorplan_space_renders_output_upload_id_fkey(
             id,
-            path
+            path,
+            deleted_at
           )
         `)
         .eq("pipeline_id", pipelineId)
@@ -59,7 +60,7 @@ export function useAvailableReferenceImages(pipelineId: string | undefined) {
 
       // Map to reference image structure
       return renders
-        .filter(r => r.output && r.space)
+        .filter(r => r.output && !(r.output as any).deleted_at && r.space)
         .map(r => ({
           id: r.output_upload_id!,
           path: (r.output as { path: string })?.path || "",

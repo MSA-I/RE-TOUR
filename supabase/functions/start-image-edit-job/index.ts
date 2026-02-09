@@ -96,15 +96,13 @@ serve(async (req) => {
         .eq("id", job_id);
     };
 
-    await logEvent("info", "Job started", 5);
-
     // Get source image URL
     const sourceUpload = job.source_upload;
     if (!sourceUpload) {
       await logEvent("error", "Source upload not found", 0);
-      await supabase.from("image_edit_jobs").update({ 
-        status: "failed", 
-        last_error: "Source upload not found" 
+      await supabase.from("image_edit_jobs").update({
+        status: "failed",
+        last_error: "Source upload not found"
       }).eq("id", job_id);
       return new Response(
         JSON.stringify({ error: "Source upload not found" }),
@@ -112,34 +110,70 @@ serve(async (req) => {
       );
     }
 
-    await logEvent("info", "Fetching source image...", 10);
+    await logEvent("info", "Fetching reference images...", 10);
 
-    // Get signed URL for source image
-    const { data: signedData } = await supabase.storage
-      .from(sourceUpload.bucket)
-      .createSignedUrl(sourceUpload.path, 3600);
+    // Get all reference uploads
+    const refIds = job.reference_upload_ids && job.reference_upload_ids.length > 0
+      ? job.reference_upload_ids
+      : [job.source_upload_id];
 
-    if (!signedData?.signedUrl) {
-      await logEvent("error", "Failed to get source image URL", 0);
-      await supabase.from("image_edit_jobs").update({ 
-        status: "failed", 
-        last_error: "Failed to get source image URL" 
-      }).eq("id", job_id);
-      return new Response(
-        JSON.stringify({ error: "Failed to get source image URL" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const { data: refUploads, error: refError } = await supabase
+      .from("uploads")
+      .select("*")
+      .in("id", refIds);
+
+    if (refError || !refUploads || refUploads.length === 0) {
+      console.error("Reference uploads fetch error:", refError);
+      // Fallback to source only if ref fetch fails but source is there
     }
 
-    await logEvent("info", "Sending to AI for editing...", 30);
+    // Fetch all images and convert to base64
+    const imageParts = [];
+    for (const upload of (refUploads || [sourceUpload])) {
+      try {
+        const { data: signedData } = await supabase.storage
+          .from(upload.bucket)
+          .createSignedUrl(upload.path, 3600);
+
+        if (signedData?.signedUrl) {
+          const imgResp = await fetch(signedData.signedUrl);
+          const imgBuf = await imgResp.arrayBuffer();
+          const imgBytes = new Uint8Array(imgBuf);
+          let binStr = "";
+          for (let i = 0; i < imgBytes.length; i++) {
+            binStr += String.fromCharCode(imgBytes[i]);
+          }
+
+          imageParts.push({
+            inlineData: {
+              mimeType: upload.mime_type || "image/png",
+              data: btoa(binStr)
+            }
+          });
+        }
+      } catch (e) {
+        console.error(`Failed to fetch image ${upload.id}:`, e);
+      }
+    }
+
+    if (imageParts.length === 0) {
+      await logEvent("error", "No valid images found for processing", 0);
+      await supabase.from("image_edit_jobs").update({
+        status: "failed",
+        last_error: "No valid images found for processing"
+      }).eq("id", job_id);
+      return new Response(JSON.stringify({ error: "No valid images" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    await logEvent("info", `Sending ${imageParts.length} image(s) to AI for editing...`, 30);
 
     // Call AI API for image editing using Google Gemini directly
     const nanoBananaKey = Deno.env.get("API_NANOBANANA");
     if (!nanoBananaKey) {
       await logEvent("error", "API_NANOBANANA key not configured", 0);
-      await supabase.from("image_edit_jobs").update({ 
-        status: "failed", 
-        last_error: "API_NANOBANANA key not configured" 
+      await supabase.from("image_edit_jobs").update({
+        status: "failed",
+        last_error: "API_NANOBANANA key not configured"
       }).eq("id", job_id);
       return new Response(
         JSON.stringify({ error: "AI API key not configured" }),
@@ -147,26 +181,14 @@ serve(async (req) => {
       );
     }
 
-    // Fetch source image as base64
-    const imageResponse = await fetch(signedData.signedUrl);
-    const imageArrayBuffer = await imageResponse.arrayBuffer();
-    const imageBytes = new Uint8Array(imageArrayBuffer);
-    let binaryString = "";
-    for (let i = 0; i < imageBytes.length; i++) {
-      binaryString += String.fromCharCode(imageBytes[i]);
-    }
-    const sourceImageBase64 = btoa(binaryString);
-    const mimeType = sourceUpload.mime_type || "image/png";
-
     // Use Gemini for image editing - with 4K support based on job settings
-    // Map quality setting to imageSize parameter (1K, 2K, 4K)
     const qualitySetting = job.output_quality?.toUpperCase() || "2K";
     const validSizes = ["1K", "2K", "4K"];
     const imageSize = validSizes.includes(qualitySetting) ? qualitySetting : "2K";
     const aspectRatio = job.aspect_ratio || "1:1";
-    
+
     console.log(`[start-image-edit-job] Quality config: imageSize=${imageSize}, aspectRatio=${aspectRatio}`);
-    
+
     const aiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${nanoBananaKey}`,
       {
@@ -180,12 +202,7 @@ serve(async (req) => {
 
 Important: Apply the changes precisely as described. Maintain image quality and preserve areas not mentioned in the edit request.`
               },
-              {
-                inlineData: {
-                  mimeType: mimeType,
-                  data: sourceImageBase64
-                }
-              }
+              ...imageParts
             ]
           }],
           generationConfig: {
@@ -205,9 +222,9 @@ Important: Apply the changes precisely as described. Maintain image quality and 
       const errorText = await aiResponse.text();
       console.error("AI API error:", aiResponse.status, errorText);
       await logEvent("error", `AI processing failed: ${aiResponse.status}`, 0);
-      await supabase.from("image_edit_jobs").update({ 
-        status: "failed", 
-        last_error: `AI processing failed: ${aiResponse.status}` 
+      await supabase.from("image_edit_jobs").update({
+        status: "failed",
+        last_error: `AI processing failed: ${aiResponse.status}`
       }).eq("id", job_id);
       return new Response(
         JSON.stringify({ error: "AI processing failed" }),
@@ -217,7 +234,7 @@ Important: Apply the changes precisely as described. Maintain image quality and 
 
     const aiData = await aiResponse.json();
     console.log("[start-image-edit-job] AI response structure:", JSON.stringify(aiData).substring(0, 500));
-    
+
     // Extract image from Gemini response - look for inlineData with image (camelCase from API)
     let generatedImageBase64: string | null = null;
     const candidates = aiData.candidates || [];
@@ -232,13 +249,13 @@ Important: Apply the changes precisely as described. Maintain image quality and 
       }
       if (generatedImageBase64) break;
     }
-    
+
     if (!generatedImageBase64) {
       console.error("[start-image-edit-job] No image in response. Full response:", JSON.stringify(aiData).substring(0, 1000));
       await logEvent("error", "No image generated by AI", 0);
-      await supabase.from("image_edit_jobs").update({ 
-        status: "failed", 
-        last_error: "No image generated by AI" 
+      await supabase.from("image_edit_jobs").update({
+        status: "failed",
+        last_error: "No image generated by AI"
       }).eq("id", job_id);
       return new Response(
         JSON.stringify({ error: "No image generated" }),
@@ -263,9 +280,9 @@ Important: Apply the changes precisely as described. Maintain image quality and 
     if (uploadError) {
       console.error("Upload error:", uploadError);
       await logEvent("error", "Failed to save output image", 0);
-      await supabase.from("image_edit_jobs").update({ 
-        status: "failed", 
-        last_error: "Failed to save output image" 
+      await supabase.from("image_edit_jobs").update({
+        status: "failed",
+        last_error: "Failed to save output image"
       }).eq("id", job_id);
       return new Response(
         JSON.stringify({ error: "Failed to save output" }),
@@ -294,9 +311,9 @@ Important: Apply the changes precisely as described. Maintain image quality and 
     if (insertError || !outputUpload) {
       console.error("Insert error:", insertError);
       await logEvent("error", "Failed to create upload record", 0);
-      await supabase.from("image_edit_jobs").update({ 
-        status: "failed", 
-        last_error: "Failed to create upload record" 
+      await supabase.from("image_edit_jobs").update({
+        status: "failed",
+        last_error: "Failed to create upload record"
       }).eq("id", job_id);
       return new Response(
         JSON.stringify({ error: "Failed to create upload record" }),
@@ -307,8 +324,8 @@ Important: Apply the changes precisely as described. Maintain image quality and 
     // Update job with output
     await supabase
       .from("image_edit_jobs")
-      .update({ 
-        status: "completed", 
+      .update({
+        status: "completed",
         output_upload_id: outputUpload.id,
         progress_int: 100,
         progress_message: "Complete"

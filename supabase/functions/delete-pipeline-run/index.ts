@@ -53,7 +53,7 @@ serve(async (req) => {
     }
 
     const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
-    
+
     // Use getUser to validate JWT and get user ID
     const userClient = createClient(supabaseUrl, supabaseServiceKey, {
       global: { headers: { Authorization: authHeader } }
@@ -90,7 +90,7 @@ serve(async (req) => {
     // Handle orphaned outputs - pipeline may have been deleted but assets remain
     if (!pipeline) {
       console.log(`[delete-pipeline-run] Pipeline ${pipeline_id} not found - may be orphaned. Cleaning up orphaned assets.`);
-      
+
       // Try to delete orphaned uploads that reference this pipeline_id in their path
       const { data: orphanedUploads } = await supabaseClient
         .from("uploads")
@@ -100,7 +100,9 @@ serve(async (req) => {
 
       if (orphanedUploads && orphanedUploads.length > 0) {
         console.log(`[delete-pipeline-run] Found ${orphanedUploads.length} orphaned uploads to clean up`);
-        
+
+        // DISABLED: We now preserve uploads even if the pipeline is orphaned, so they stay in Creations.
+        /*
         // Delete from storage
         const bucketGroups: Record<string, string[]> = {};
         for (const upload of orphanedUploads) {
@@ -121,12 +123,14 @@ serve(async (req) => {
         const uploadIds = orphanedUploads.map(u => u.id);
         await supabaseClient.from("uploads").delete().in("id", uploadIds);
         result.deleted_outputs_count = uploadIds.length;
+        */
+        console.log(`[delete-pipeline-run] Preserving ${orphanedUploads.length} orphaned uploads for Creations.`);
       }
 
       result.success = true;
       result.deleted_run_id = pipeline_id;
       result.warnings = warnings;
-      
+
       return new Response(
         JSON.stringify(result),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -134,9 +138,9 @@ serve(async (req) => {
     }
 
     // 2. Check if pipeline is running (safety check)
-    const runningPhases = ["space_analysis_running", "top_down_3d_running", "style_running", 
+    const runningPhases = ["space_analysis_running", "top_down_3d_running", "style_running",
       "detecting_spaces", "renders_in_progress", "panoramas_in_progress", "merging_in_progress"];
-    
+
     if (runningPhases.includes(pipeline.whole_apartment_phase || "") && !force_delete_running) {
       throw new Error("Pipeline is currently running. Wait for it to complete or use force_delete_running=true");
     }
@@ -262,8 +266,9 @@ serve(async (req) => {
     console.log(`[delete-pipeline-run] Total storage paths to delete: ${storagePathsToDelete.length}`);
 
     // =========================================================================
-    // STEP C: Delete storage objects first
+    // STEP C: DISABLED - PRESERVE STORAGE OBJECTS FOR CREATIONS
     // =========================================================================
+    /*
     const bucketGroups: Record<string, string[]> = {};
     for (const { bucket, path } of storagePathsToDelete) {
       if (!bucketGroups[bucket]) bucketGroups[bucket] = [];
@@ -288,6 +293,8 @@ serve(async (req) => {
         warnings.push(`Storage cleanup failed for ${bucket}`);
       }
     }
+    */
+    console.log(`[delete-pipeline-run] PRESERVING ${storagePathsToDelete.length} storage objects for Creations.`);
 
     // =========================================================================
     // STEP D: Delete DB records in order (respecting foreign keys)
@@ -407,7 +414,8 @@ serve(async (req) => {
       .delete()
       .eq("pipeline_id", pipeline_id);
 
-    // D14. Delete upload records for outputs (NOT the floor plan itself)
+    // D14. DISABLED: Upload records for outputs are now preserved for Creations.
+    /*
     if (uniqueUploadIds.length > 0) {
       const { data: deletedUploads, error: uploadsError } = await supabaseClient
         .from("uploads")
@@ -422,6 +430,8 @@ serve(async (req) => {
         result.deleted_outputs_count = deletedUploads?.length || 0;
       }
     }
+    */
+    console.log(`[delete-pipeline-run] PRESERVING ${uniqueUploadIds.length} upload records for Creations.`);
 
     // D15. Finally, delete the pipeline itself
     const { error: pipelineDeleteError } = await supabaseClient

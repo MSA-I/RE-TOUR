@@ -16,24 +16,28 @@ const TEXT_ANALYSIS_MODEL = "gemini-2.5-pro";
 
 const STYLE_ANALYSIS_PROMPT = `You are an expert interior designer. Analyze the provided design reference image(s) and extract a STRUCTURED STYLE PROFILE.
 
-Extract:
-1. OVERALL DESIGN STYLE (primary style, secondary influences, mood keywords)
-2. COLOR PALETTE (primary, secondary, accent colors with hex codes)
-3. MATERIAL LANGUAGE (flooring, walls, wood tones, metal finishes, fabrics, stone)
-4. LIGHTING MOOD (temperature, intensity, mood)
-5. TEXTURE LEVEL (density, key elements)
-6. STYLE RULES (do/don't guidelines)
+IMPORTANT: Keep output COMPACT. Limit arrays to 3-5 items max. Total response should be under 1500 characters.
 
-OUTPUT FORMAT (JSON only):
+Extract:
+1. OVERALL DESIGN STYLE (primary style, 1-2 secondary influences, 3-5 mood keywords)
+2. COLOR PALETTE (primary, 2-3 secondary, 2-3 accent colors with hex codes)
+3. MATERIAL LANGUAGE (key materials only: flooring, walls, wood_tone, metal_finish, fabrics, stone)
+4. LIGHTING MOOD (temperature, intensity, mood)
+5. TEXTURE LEVEL (density, 2-3 key elements)
+6. STYLE RULES (3-5 do's, 3-5 avoid's)
+
+OUTPUT FORMAT (JSON only, NO markdown, NO code fences):
 {
-  "design_style": { "primary": "...", "secondary": [...], "mood_keywords": [...] },
-  "color_palette": { "primary": "#...", "secondary": [...], "accent": [...], "temperature": "..." },
-  "materials": { "flooring": "...", "walls": "...", "wood_tone": "...", "metal_finish": "...", "fabrics": "...", "stone": "..." },
-  "lighting": { "temperature": "...", "intensity": "...", "mood": "..." },
-  "texture_level": { "density": "...", "key_elements": [...] },
-  "style_rules": { "do": [...], "avoid": [...] },
-  "summary_prompt": "A concise 2-3 sentence style description."
-}`;
+  "design_style": { "primary": "Modern Minimalist", "secondary": ["Scandinavian"], "mood_keywords": ["serene", "airy", "refined"] },
+  "color_palette": { "primary": "#F5F5F5", "secondary": ["#E8E8E8", "#D0D0D0"], "accent": ["#4A4A4A"], "temperature": "cool" },
+  "materials": { "flooring": "light oak", "walls": "white plaster", "wood_tone": "natural", "metal_finish": "brushed steel", "fabrics": "linen", "stone": "marble" },
+  "lighting": { "temperature": "warm white", "intensity": "soft", "mood": "ambient" },
+  "texture_level": { "density": "minimal", "key_elements": ["smooth surfaces", "subtle grain"] },
+  "style_rules": { "do": ["Use neutral palette", "Keep clean lines", "Add natural light"], "avoid": ["Bold patterns", "Dark colors", "Clutter"] },
+  "summary_prompt": "Modern minimalist aesthetic with Scandinavian influences. Emphasizes clean lines, natural materials, and a serene neutral palette."
+}
+
+KEEP IT CONCISE: Each array should have 2-5 items MAXIMUM, not 10+. Be specific but brief.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -68,22 +72,64 @@ serve(async (req) => {
 
     // Load reference images
     const referenceImages: { id: string; base64: string }[] = [];
+    const loadErrors: string[] = [];
+
     for (const refId of design_ref_ids) {
+      console.log(`[run-style-analysis] Loading reference image: ${refId}`);
       const { data: upload } = await supabaseAdmin.from("uploads").select("bucket, path").eq("id", refId).eq("owner_id", user.id).single();
-      if (upload) {
-        const { data: signedUrl } = await supabaseAdmin.storage.from(upload.bucket).createSignedUrl(upload.path, 3600);
-        if (signedUrl?.signedUrl) {
-          try {
-            const response = await fetch(signedUrl.signedUrl);
-            const buffer = await response.arrayBuffer();
-            referenceImages.push({ id: refId, base64: encodeBase64(buffer) });
-          } catch {}
+
+      if (!upload) {
+        loadErrors.push(`Reference ${refId} not found`);
+        continue;
+      }
+
+      // 1. Try with transformation
+      // Note: Don't specify format to preserve original (Supabase doesn't support 'webp' as output)
+      let signedUrl = await supabaseAdmin.storage
+        .from(upload.bucket)
+        .createSignedUrl(upload.path, 3600, {
+          transform: { width: 1600, height: 1600, quality: 60 }
+        });
+
+      let response = signedUrl.data?.signedUrl ? await fetch(signedUrl.data.signedUrl) : null;
+
+      // 2. Fallback to raw if transformation fails (e.g. if not enabled on project)
+      if (!response || !response.ok) {
+        console.log(`[run-style-analysis] Transformation failed or not available for ${refId}, falling back to raw...`);
+        signedUrl = await supabaseAdmin.storage.from(upload.bucket).createSignedUrl(upload.path, 3600);
+        if (signedUrl.data?.signedUrl) {
+          response = await fetch(signedUrl.data.signedUrl);
         }
+      }
+
+      if (response && response.ok) {
+        try {
+          const buffer = await response.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          referenceImages.push({ id: refId, base64: encodeBase64(bytes) });
+          console.log(`[run-style-analysis] Successfully loaded reference ${refId}`);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Unknown error";
+          console.error(`[run-style-analysis] Base64 conversion failed for ${refId}:`, msg);
+          loadErrors.push(`Failed to process ${refId}: ${msg}`);
+        }
+      } else {
+        const status = response ? response.status : "unknown";
+        console.error(`[run-style-analysis] Failed to fetch ${refId}: HTTP ${status}`);
+        loadErrors.push(`Failed to download ${refId} (HTTP ${status})`);
       }
     }
 
     if (!referenceImages.length) {
-      return new Response(JSON.stringify({ ok: false, error: "Failed to load reference images" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      console.error("[run-style-analysis] No reference images could be loaded. Errors:", loadErrors);
+      return new Response(JSON.stringify({
+        ok: false,
+        error: "Failed to load reference images",
+        details: loadErrors.join(", ")
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     if (!API_NANOBANANA) throw new Error("API_NANOBANANA not configured");
@@ -121,16 +167,16 @@ serve(async (req) => {
       // Try to extract JSON from markdown code blocks first
       const jsonBlockMatch = responseContent.match(/```(?:json)?\s*([\s\S]*?)```/);
       let jsonStr = jsonBlockMatch ? jsonBlockMatch[1].trim() : responseContent;
-      
+
       // Try to find the outermost JSON object
       const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         console.error("No JSON object found in response:", jsonStr.substring(0, 300));
         throw new Error("No JSON object found");
       }
-      
+
       styleAnalysis = JSON.parse(jsonMatch[0]);
-      
+
       // Validate we got meaningful data
       if (!styleAnalysis.design_style && !styleAnalysis.color_palette) {
         console.error("Parsed JSON missing expected fields:", JSON.stringify(styleAnalysis).substring(0, 300));
@@ -200,12 +246,12 @@ serve(async (req) => {
 
     // Store in step_outputs with the constraints block
     const stepOutputs = (pipeline.step_outputs || {}) as Record<string, any>;
-    stepOutputs.reference_style_analysis = { 
-      analyzed_at: new Date().toISOString(), 
-      design_ref_ids, 
-      style_data: styleAnalysis, 
+    stepOutputs.reference_style_analysis = {
+      analyzed_at: new Date().toISOString(),
+      design_ref_ids,
+      style_data: styleAnalysis,
       style_constraints_block: styleConstraintsBlock,
-      summary: styleAnalysis.summary_prompt 
+      summary: styleAnalysis.summary_prompt
     };
 
     await supabaseAdmin.from("floorplan_pipelines").update({ step_outputs: stepOutputs, updated_at: new Date().toISOString() }).eq("id", pipeline_id);

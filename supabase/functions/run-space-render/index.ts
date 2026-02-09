@@ -505,7 +505,7 @@ serve(async (req) => {
     // Fetch pipeline to get dimension analysis and quality settings
     const { data: pipeline } = await serviceClient
       .from("floorplan_pipelines")
-      .select("step_outputs, output_resolution, aspect_ratio, quality_post_step4, floor_plan_upload_id")
+      .select("step_outputs, output_resolution, aspect_ratio, quality_post_step4, floor_plan_upload_id, project_id")
       .eq("id", render.pipeline_id)
       .single();
     
@@ -1316,9 +1316,7 @@ Generate the view as if you turned around 180° from this position.` });
     const { data: uploadRecord, error: uploadRecordError } = await serviceClient
       .from("uploads")
       .insert({
-        project_id: render.space?.pipeline_id ? 
-          (await serviceClient.from("floorplan_pipelines").select("project_id").eq("id", render.pipeline_id).single()).data?.project_id : 
-          null,
+        project_id: pipeline?.project_id || null,
         owner_id: userId,
         kind: "output",
         bucket: "outputs",
@@ -1377,6 +1375,9 @@ Generate the view as if you turned around 180° from this position.` });
           asset_id: render_id,
           asset_type: "render",
           current_attempt: currentAttempt,
+          // Explicit step tracking for correct Judge evaluation
+          step_id: 5,
+          project_id: pipeline?.project_id || null,
         }),
       });
 

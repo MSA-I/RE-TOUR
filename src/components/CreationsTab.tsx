@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useStorage } from "@/hooks/useStorage";
 import { useDeleteUpload } from "@/hooks/useDeleteUpload";
+import { useUploads } from "@/hooks/useUploads";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,8 +21,8 @@ import { VirtualizedImageGrid } from "@/components/VirtualizedImageGrid";
 import { LazyImage } from "@/components/LazyImage";
 import { PipelineRunsFolder, type PipelineCreation } from "@/components/creations/PipelineRunsFolder";
 import { CreationsViewToggle, type CreationsViewMode } from "@/components/creations/CreationsViewToggle";
-import { 
-  Loader2, Image, MoreHorizontal, Layers, Wand2, Eye, X, Paperclip, ImagePlus, ArrowRight, Check, CheckSquare, Trash2, Box, Maximize2, Download, Info
+import {
+  Loader2, Image, MoreHorizontal, Layers, Wand2, Eye, X, Paperclip, ImagePlus, ArrowRight, Check, CheckSquare, Trash2, Box, Maximize2, Download, Info, Upload
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
@@ -47,7 +48,7 @@ interface Creation {
   kind: string;
   original_filename: string | null;
   created_at: string;
-  source_type: "render_job" | "batch_item" | "pipeline_step" | "image_edit";
+  source_type: "render_job" | "batch_item" | "pipeline_step" | "image_edit" | "upload";
   source_id: string;
   source_step?: number;
   // Pipeline-specific metadata for folder organization
@@ -127,6 +128,8 @@ const CreationCard = memo(function CreationCard({
         return `Pipeline Step ${creation.source_step}`;
       case "image_edit":
         return "Image Edit";
+      case "upload":
+        return `Project ${creation.kind?.replace('_', ' ') || 'Upload'}`;
       default:
         return "Unknown";
     }
@@ -155,20 +158,19 @@ const CreationCard = memo(function CreationCard({
 
   return (
     <div
-      className={`group relative rounded-lg border overflow-hidden transition-all ${
-        isSelected 
-          ? "ring-2 ring-primary border-primary bg-primary/5" 
-          : isAttached 
-          ? "ring-2 ring-primary border-primary" 
+      className={`group relative rounded-lg border overflow-hidden transition-all ${isSelected
+        ? "ring-2 ring-primary border-primary bg-primary/5"
+        : isAttached
+          ? "ring-2 ring-primary border-primary"
           : "border-border hover:border-muted-foreground"
-      }`}
+        }`}
       onClick={isSelectionMode ? onToggleSelect : undefined}
     >
       {/* Selection checkbox overlay */}
       {isSelectionMode && (
         <div className="absolute top-2 left-2 z-10">
-          <Checkbox 
-            checked={isSelected} 
+          <Checkbox
+            checked={isSelected}
             onCheckedChange={() => onToggleSelect()}
             className="h-5 w-5 bg-background/80 border-2"
           />
@@ -197,9 +199,9 @@ const CreationCard = memo(function CreationCard({
       {isMobile && hasGenMeta && !isSelectionMode && (
         <Popover>
           <PopoverTrigger asChild>
-            <Button 
-              size="icon" 
-              variant="secondary" 
+            <Button
+              size="icon"
+              variant="secondary"
               className="absolute top-2 left-2 h-7 w-7 z-10"
               onClick={(e) => e.stopPropagation()}
             >
@@ -291,10 +293,10 @@ const CreationCard = memo(function CreationCard({
   );
 });
 
-export const CreationsTab = memo(function CreationsTab({ 
-  projectId, 
-  onAttachToStage, 
-  onEditImage, 
+export const CreationsTab = memo(function CreationsTab({
+  projectId,
+  onAttachToStage,
+  onEditImage,
   onUsePanorama,
   onCreatePipeline,
   onAttachMultiToPanorama,
@@ -306,25 +308,26 @@ export const CreationsTab = memo(function CreationsTab({
   const { toast } = useToast();
   const navigate = useNavigate();
   const deleteUploadMutation = useDeleteUpload(projectId);
-  
+  const { softDeleteUpload } = useUploads(projectId);
+
   // Download state - track which creation is currently downloading
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  
+
   const [creations, setCreations] = useState<Creation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  
+
   // Selection mode state
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  
+
   // Delete confirmation state (single and bulk)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [creationToDelete, setCreationToDelete] = useState<Creation | null>(null);
   const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   // Thumbnail size state with localStorage persistence
   const [thumbnailSize, setThumbnailSize] = useState<number>(() => {
     const saved = localStorage.getItem(THUMBNAIL_SIZES.storageKey);
@@ -334,7 +337,7 @@ export const CreationsTab = memo(function CreationsTab({
   // View mode state: "all" shows flat grid, "folders" shows pipeline-organized view
   const [viewMode, setViewMode] = useState<CreationsViewMode>(() => {
     const saved = localStorage.getItem("creations-view-mode");
-    return (saved === "folders" ? "folders" : "all") as CreationsViewMode;
+    return (saved === "folders" || saved === "uploads" ? saved : "all") as CreationsViewMode;
   });
 
   // Attach modal state - supports Panorama and Edit destinations
@@ -347,6 +350,13 @@ export const CreationsTab = memo(function CreationsTab({
   const [viewLargeOpen, setViewLargeOpen] = useState(false);
   const [viewLargeUrl, setViewLargeUrl] = useState<string>("");
   const [viewLargeFilename, setViewLargeFilename] = useState<string>("");
+
+  // Filter state for Uploads view
+  const [uploadFilterKind, setUploadFilterKind] = useState<"all" | "floor_plan" | "design_ref" | "panorama" | "output">("all");
+
+  // Reference check warning state
+  const [deleteWarning, setDeleteWarning] = useState<string | null>(null);
+  const [isPermanentDelete, setIsPermanentDelete] = useState(false);
 
   // Track which previews are being loaded
   const loadingPreviewsRef = useRef<Set<string>>(new Set());
@@ -380,7 +390,7 @@ export const CreationsTab = memo(function CreationsTab({
           output_upload_id,
           status,
           output_resolution,
-          output:uploads!render_jobs_output_upload_id_fkey(id, bucket, path, original_filename, created_at, kind)
+          output:uploads!render_jobs_output_upload_id_fkey(id, bucket, path, original_filename, created_at, kind, deleted_at)
         `)
         .eq("project_id", projectId)
         .not("output_upload_id", "is", null)
@@ -388,7 +398,7 @@ export const CreationsTab = memo(function CreationsTab({
 
       if (renderJobs) {
         renderJobs.forEach((job: any) => {
-          if (job.output) {
+          if (job.output && !job.output.deleted_at) {
             allCreations.push({
               id: job.output.id,
               bucket: job.output.bucket,
@@ -414,7 +424,7 @@ export const CreationsTab = memo(function CreationsTab({
           status,
           qa_decision,
           batch_job:batch_jobs!inner(project_id, output_resolution),
-          output:uploads!batch_jobs_items_output_upload_id_fkey(id, bucket, path, original_filename, created_at, kind)
+          output:uploads!batch_jobs_items_output_upload_id_fkey(id, bucket, path, original_filename, created_at, kind, deleted_at)
         `)
         .eq("batch_job.project_id", projectId)
         .not("output_upload_id", "is", null)
@@ -423,7 +433,7 @@ export const CreationsTab = memo(function CreationsTab({
       if (batchItems) {
         batchItems.forEach((item: any) => {
           // Additional filter: exclude items with qa_decision = 'rejected'
-          if (item.output && item.qa_decision !== "rejected") {
+          if (item.output && !item.output.deleted_at && item.qa_decision !== "rejected") {
             allCreations.push({
               id: item.output.id,
               bucket: item.output.bucket,
@@ -450,14 +460,14 @@ export const CreationsTab = memo(function CreationsTab({
       // Collect approved pipeline output upload IDs + their metadata (including pipeline_id for folder org)
       const approvedPipelineOutputIds = new Set<string>();
       const rejectedPipelineOutputIds = new Set<string>();
-      const pipelineMetadata: Record<string, { 
-        ratio?: string; 
-        quality?: string; 
+      const pipelineMetadata: Record<string, {
+        ratio?: string;
+        quality?: string;
         pipeline_id?: string;
         space_id?: string;
         space_name?: string;
       }> = {};
-      
+
       if (pipelines) {
         pipelines.forEach((pipeline: any) => {
           const pipelineId = pipeline.id;
@@ -515,6 +525,7 @@ export const CreationsTab = memo(function CreationsTab({
         .select("id, bucket, path, original_filename, created_at, kind")
         .eq("project_id", projectId)
         .eq("kind", "output")
+        .is("deleted_at", null)
         .like("path", `%/pipeline_%`);
 
       if (pipelineOutputs) {
@@ -523,14 +534,14 @@ export const CreationsTab = memo(function CreationsTab({
           if (rejectedPipelineOutputIds.has(upload.id)) {
             return;
           }
-          
+
           // Extract pipeline_id and step from path: /user_id/pipeline_{pipeline_id}_step{N}_...
           const pipelineIdMatch = upload.path.match(/pipeline_([a-f0-9-]+)_step/);
           const stepMatch = upload.path.match(/pipeline_[^_]+_step(\d+)_/);
           const stepNumber = stepMatch ? parseInt(stepMatch[1]) : 1;
           const extractedPipelineId = pipelineIdMatch ? pipelineIdMatch[1] : undefined;
           const metadata = pipelineMetadata[upload.id] || {};
-          
+
           allCreations.push({
             id: upload.id,
             bucket: upload.bucket,
@@ -559,7 +570,7 @@ export const CreationsTab = memo(function CreationsTab({
           status,
           aspect_ratio,
           output_quality,
-          output:uploads!image_edit_jobs_output_upload_id_fkey(id, bucket, path, original_filename, created_at, kind)
+          output:uploads!image_edit_jobs_output_upload_id_fkey(id, bucket, path, original_filename, created_at, kind, deleted_at)
         `)
         .eq("project_id", projectId)
         .not("output_upload_id", "is", null)
@@ -567,7 +578,7 @@ export const CreationsTab = memo(function CreationsTab({
 
       if (imageEditJobs) {
         imageEditJobs.forEach((job: any) => {
-          if (job.output) {
+          if (job.output && !job.output.deleted_at) {
             allCreations.push({
               id: job.output.id,
               bucket: job.output.bucket,
@@ -579,6 +590,32 @@ export const CreationsTab = memo(function CreationsTab({
               source_id: job.id,
               ratio: job.aspect_ratio || null,
               quality: job.output_quality || null
+            });
+          }
+        });
+      }
+
+      // 5. Fetch all raw uploads for this project (excluding outputs already handled)
+      const { data: rawUploads } = await supabase
+        .from("uploads")
+        .select("*")
+        .eq("project_id", projectId)
+        .is("deleted_at", null);
+
+      if (rawUploads) {
+        // We only add them if they aren't already in allCreations (e.g. as outputs)
+        const existingOutputIds = new Set(allCreations.map(c => c.id));
+        rawUploads.forEach((upload: any) => {
+          if (!existingOutputIds.has(upload.id)) {
+            allCreations.push({
+              id: upload.id,
+              bucket: upload.bucket,
+              path: upload.path,
+              kind: upload.kind,
+              original_filename: upload.original_filename,
+              created_at: upload.created_at,
+              source_type: "upload",
+              source_id: upload.id
             });
           }
         });
@@ -610,7 +647,7 @@ export const CreationsTab = memo(function CreationsTab({
   // Load preview for a single creation - with deduplication
   const loadPreview = useCallback(async (creation: Creation) => {
     const id = creation.id;
-    
+
     if (loadedPreviewsRef.current.has(id) || loadingPreviewsRef.current.has(id)) {
       return;
     }
@@ -689,16 +726,16 @@ export const CreationsTab = memo(function CreationsTab({
   // Handle batch attach to panorama
   const handleAttachToPanorama = useCallback(() => {
     if (selectedIds.size === 0) return;
-    
+
     const ids = Array.from(selectedIds);
     console.log(`[Creations] Attaching ${ids.length} images to Panorama`);
-    
+
     if (onAttachMultiToPanorama) {
       onAttachMultiToPanorama(ids);
     } else if (ids.length === 1 && onUsePanorama) {
       onUsePanorama(ids[0]);
     }
-    
+
     setIsSelectionMode(false);
     setSelectedIds(new Set());
   }, [selectedIds, onAttachMultiToPanorama, onUsePanorama]);
@@ -706,16 +743,16 @@ export const CreationsTab = memo(function CreationsTab({
   // Handle batch attach to edit
   const handleAttachToEdit = useCallback(() => {
     if (selectedIds.size === 0) return;
-    
+
     const ids = Array.from(selectedIds);
     console.log(`[Creations] Attaching ${ids.length} images to Image Editing`);
-    
+
     if (onAttachMultiToEdit) {
       onAttachMultiToEdit(ids);
     } else if (ids.length === 1 && onEditImage) {
       onEditImage(ids[0]);
     }
-    
+
     setIsSelectionMode(false);
     setSelectedIds(new Set());
   }, [selectedIds, onAttachMultiToEdit, onEditImage]);
@@ -723,69 +760,188 @@ export const CreationsTab = memo(function CreationsTab({
   // Handle batch attach to Virtual Tour
   const handleAttachToVirtualTour = useCallback(() => {
     if (selectedIds.size === 0) return;
-    
+
     const ids = Array.from(selectedIds);
     console.log(`[Creations] Attaching ${ids.length} images to Virtual Tour`);
-    
+
     if (onAttachMultiToVirtualTour) {
       onAttachMultiToVirtualTour(ids);
     }
-    
+
     setIsSelectionMode(false);
     setSelectedIds(new Set());
   }, [selectedIds, onAttachMultiToVirtualTour]);
 
+  // Check if an upload is referenced anywhere in the DB
+  const checkUploadReferences = async (uploadIds: string[]) => {
+    try {
+      let referenceCount = 0;
+      const details: string[] = [];
+
+      // Check floorplan_pipelines
+      const { count: pipelineCount } = await supabase
+        .from("floorplan_pipelines")
+        .select("*", { count: "exact", head: true })
+        .in("floor_plan_upload_id", uploadIds);
+      if (pipelineCount) {
+        referenceCount += pipelineCount;
+        details.push(`${pipelineCount} pipeline(s)`);
+      }
+
+      // Check render_jobs (various columns)
+      const { count: panoramaCount } = await supabase
+        .from("render_jobs")
+        .select("*", { count: "exact", head: true })
+        .in("panorama_upload_id", uploadIds);
+      if (panoramaCount) {
+        referenceCount += panoramaCount;
+        details.push(`${panoramaCount} panorama job(s)`);
+      }
+
+      const { count: outputCount } = await supabase
+        .from("render_jobs")
+        .select("*", { count: "exact", head: true })
+        .in("output_upload_id", uploadIds);
+      if (outputCount) {
+        referenceCount += outputCount;
+        details.push(`${outputCount} completed render(s)`);
+      }
+
+      // Check batch_jobs_items
+      const { count: batchCount } = await supabase
+        .from("batch_jobs_items")
+        .select("*", { count: "exact", head: true })
+        .or(`panorama_upload_id.in.(${uploadIds.join(',')}),output_upload_id.in.(${uploadIds.join(',')})`);
+      if (batchCount) {
+        referenceCount += batchCount;
+        details.push(`${batchCount} batch item(s)`);
+      }
+
+      // Check image_edit_jobs
+      const { count: editCount } = await supabase
+        .from("image_edit_jobs")
+        .select("*", { count: "exact", head: true })
+        .or(`source_upload_id.in.(${uploadIds.join(',')}),output_upload_id.in.(${uploadIds.join(',')})`);
+      if (editCount) {
+        referenceCount += editCount;
+        details.push(`${editCount} image edit(s)`);
+      }
+
+      if (referenceCount > 0) {
+        return `This upload is used by ${details.join(', ')}. You can hide it (soft delete), but permanent deletion is blocked.`;
+      }
+      return null;
+    } catch (err) {
+      console.error("Reference check failed:", err);
+      return null;
+    }
+  };
+
   // Handle delete request (single)
-  const handleDeleteRequest = useCallback((creation: Creation) => {
+  const handleDeleteRequest = useCallback(async (creation: Creation) => {
     setCreationToDelete(creation);
     setBulkDeleteMode(false);
+    setIsPermanentDelete(false);
+
+    // Check references for the warning
+    const warning = await checkUploadReferences([creation.id]);
+    setDeleteWarning(warning);
+
     setDeleteConfirmOpen(true);
   }, []);
 
   // Handle bulk delete request
-  const handleBulkDeleteRequest = useCallback(() => {
+  const handleBulkDeleteRequest = useCallback(async () => {
     if (selectedIds.size === 0) return;
     setBulkDeleteMode(true);
     setCreationToDelete(null);
+    setIsPermanentDelete(false);
+
+    // Check references for the warning
+    const warning = await checkUploadReferences(Array.from(selectedIds));
+    setDeleteWarning(warning);
+
     setDeleteConfirmOpen(true);
-  }, [selectedIds.size]);
+  }, [selectedIds]);
+
+  // Handle permanent delete request (from AlertDialog)
+  const handlePermanentDelete = async () => {
+    if (deleteWarning) {
+      toast({
+        title: "Permanent delete blocked",
+        description: "Items in use cannot be permanently deleted.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const idsToDelete = bulkDeleteMode ? Array.from(selectedIds) : (creationToDelete ? [creationToDelete.id] : []);
+
+      for (const id of idsToDelete) {
+        await deleteUploadMutation.mutateAsync({ uploadId: id });
+      }
+
+      if (bulkDeleteMode) {
+        setSelectedIds(new Set());
+        setIsSelectionMode(false);
+      } else {
+        setCreationToDelete(null);
+      }
+
+      toast({
+        title: "Permanently deleted",
+        description: `${idsToDelete.length} files removed from storage.`
+      });
+      fetchCreations();
+    } catch (error) {
+      toast({
+        title: "Permanent delete failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive"
+      });
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmOpen(false);
+      setIsPermanentDelete(false);
+    }
+  };
 
   // Confirm delete (single or bulk)
   const handleConfirmDelete = useCallback(async () => {
     setIsDeleting(true);
     try {
       if (bulkDeleteMode) {
-        // Bulk delete
         const idsToDelete = Array.from(selectedIds);
-        console.log(`[Creations] Bulk deleting ${idsToDelete.length} images`);
-        
-        for (const uploadId of idsToDelete) {
-          await deleteUploadMutation.mutateAsync({ uploadId });
-        }
-        
-        // Remove from local state
-        setCreations(prev => prev.filter(c => !selectedIds.has(c.id)));
+
+        // Use soft delete for multiple uploads
+        await softDeleteUpload.mutateAsync(idsToDelete);
+
         setSelectedIds(new Set());
         setIsSelectionMode(false);
-        
-        toast({ title: `${idsToDelete.length} images deleted successfully` });
-      } else if (creationToDelete) {
-        // Single delete
-        await deleteUploadMutation.mutateAsync({ uploadId: creationToDelete.id });
-        
-        // Remove from local state
-        setCreations(prev => prev.filter(c => c.id !== creationToDelete.id));
-        setSelectedIds(prev => {
-          const next = new Set(prev);
-          next.delete(creationToDelete.id);
-          return next;
+        setBulkDeleteMode(false);
+
+        toast({
+          title: `${idsToDelete.length} items soft-deleted`,
+          description: "References preserved in database, hidden from view."
         });
-        
-        toast({ title: "Image deleted successfully" });
+      } else if (creationToDelete) {
+        // Individual delete - also soft delete by default in this management view
+        await softDeleteUpload.mutateAsync([creationToDelete.id]);
+        setCreationToDelete(null);
+
+        toast({
+          title: "Item soft-deleted",
+          description: "References preserved in database, hidden from view."
+        });
       }
+
+      fetchCreations();
     } catch (error) {
+      console.error("Delete failed:", error);
       toast({
-        title: "Failed to delete image(s)",
+        title: "Delete failed",
         description: error instanceof Error ? error.message : "Unknown error",
         variant: "destructive"
       });
@@ -795,7 +951,69 @@ export const CreationsTab = memo(function CreationsTab({
       setCreationToDelete(null);
       setBulkDeleteMode(false);
     }
-  }, [bulkDeleteMode, selectedIds, creationToDelete, deleteUploadMutation, toast]);
+  }, [bulkDeleteMode, selectedIds, creationToDelete, softDeleteUpload, fetchCreations, toast]);
+
+  // Handle download full quality
+  const handleDownloadFullQuality = useCallback(async (creation: Creation) => {
+    if (downloadingId) return; // Prevent concurrent downloads
+
+    setDownloadingId(creation.id);
+
+    try {
+      // Generate a clean filename
+      const ext = creation.path.split('.').pop() || 'png';
+      const cleanFilename = `RETOUR_creation_${creation.id.slice(0, 8)}_full.${ext}`;
+
+      // Get signed download URL
+      const result = await getSignedDownloadUrl(creation.bucket, creation.path, cleanFilename);
+
+      if (!result?.signedUrl) {
+        throw new Error("Failed to generate download URL");
+      }
+
+      // Trigger browser download
+      const link = document.createElement('a');
+      link.href = result.signedUrl;
+      link.download = cleanFilename;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast({
+        title: "Downloading full-quality file…",
+        description: cleanFilename
+      });
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast({
+        title: "Download failed",
+        description: error instanceof Error ? error.message : "Full-quality file not available",
+        variant: "destructive"
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  }, [downloadingId, getSignedDownloadUrl, toast]);
+
+  // Handle batch download
+  const handleDownloadMulti = useCallback(async (ids: string[]) => {
+    if (downloadingId) return;
+
+    const selectedCreations = creations.filter(c => ids.includes(c.id));
+    if (selectedCreations.length === 0) return;
+
+    toast({
+      title: `Starting download of ${selectedCreations.length} items…`,
+      description: "Files will be downloaded individually."
+    });
+
+    for (const creation of selectedCreations) {
+      await handleDownloadFullQuality(creation);
+      // Small delay between downloads to prevent browser blocking
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }, [creations, downloadingId, handleDownloadFullQuality, toast]);
 
   // Handle starting a new pipeline from a specific step
   const handleStartPipelineFromStep = useCallback((creation: Creation, stage: number) => {
@@ -836,7 +1054,7 @@ export const CreationsTab = memo(function CreationsTab({
   // Confirm attach action
   const handleConfirmAttach = useCallback(() => {
     if (!attachModalCreation) return;
-    
+
     if (attachModalDestination === "panorama") {
       if (onUsePanorama) {
         onUsePanorama(attachModalCreation.id);
@@ -846,53 +1064,12 @@ export const CreationsTab = memo(function CreationsTab({
         onEditImage(attachModalCreation.id);
       }
     }
-    
+
     setAttachModalOpen(false);
     setAttachModalCreation(null);
   }, [attachModalCreation, attachModalDestination, onUsePanorama, onEditImage]);
 
-  // Handle download full quality
-  const handleDownloadFullQuality = useCallback(async (creation: Creation) => {
-    if (downloadingId) return; // Prevent concurrent downloads
-    
-    setDownloadingId(creation.id);
-    
-    try {
-      // Generate a clean filename
-      const ext = creation.path.split('.').pop() || 'png';
-      const cleanFilename = `RETOUR_creation_${creation.id.slice(0, 8)}_full.${ext}`;
-      
-      // Get signed download URL
-      const result = await getSignedDownloadUrl(creation.bucket, creation.path, cleanFilename);
-      
-      if (!result?.signedUrl) {
-        throw new Error("Failed to generate download URL");
-      }
-      
-      // Trigger browser download
-      const link = document.createElement('a');
-      link.href = result.signedUrl;
-      link.download = cleanFilename;
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      toast({
-        title: "Downloading full-quality file…",
-        description: cleanFilename
-      });
-    } catch (error) {
-      console.error("Download failed:", error);
-      toast({
-        title: "Download failed",
-        description: error instanceof Error ? error.message : "Full-quality file not available",
-        variant: "destructive"
-      });
-    } finally {
-      setDownloadingId(null);
-    }
-  }, [downloadingId, getSignedDownloadUrl, toast]);
+  // placeholder
 
   const renderCreation = useCallback((creation: Creation) => {
     const isAttached = attachments.some(a => a.uploadId === creation.id);
@@ -926,15 +1103,23 @@ export const CreationsTab = memo(function CreationsTab({
   }, [attachments, imagePreviews, selectedIds, isSelectionMode, downloadingId, handleToggleSelect, handleStartPipelineFromStep, handleEditClick, handleUsePanoramaClick, handleDeleteRequest, handleDownloadFullQuality]);
 
   // Separate pipeline creations from other creations for folder view
-  const pipelineCreations = useMemo(() => 
+  const pipelineCreations = useMemo(() =>
     creations.filter(c => c.source_type === "pipeline_step"),
     [creations]
   );
 
-  const otherCreations = useMemo(() => 
-    creations.filter(c => c.source_type !== "pipeline_step"),
+  const otherCreations = useMemo(() =>
+    creations.filter(c => c.source_type !== "pipeline_step" && c.source_type !== "upload"),
     [creations]
   );
+
+  const uploadCreations = useMemo(() => {
+    let base = creations.filter(c => c.source_type === "upload");
+    if (uploadFilterKind !== "all") {
+      base = base.filter(c => c.kind === uploadFilterKind);
+    }
+    return base;
+  }, [creations, uploadFilterKind]);
 
   return (
     <div className="space-y-6">
@@ -947,16 +1132,16 @@ export const CreationsTab = memo(function CreationsTab({
             </Badge>
           </div>
           <div className="flex items-center gap-2">
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               onClick={handleAttachToPanorama}
               disabled={selectedIds.size === 0}
             >
               <ImagePlus className="h-4 w-4 mr-2" />
               Attach to Panorama {selectedIds.size > 1 && "(Batch)"}
             </Button>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               variant="outline"
               onClick={handleAttachToEdit}
               disabled={selectedIds.size === 0}
@@ -964,31 +1149,40 @@ export const CreationsTab = memo(function CreationsTab({
               <Wand2 className="h-4 w-4 mr-2" />
               Attach to Image Editing
             </Button>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               variant="outline"
               onClick={handleAttachToVirtualTour}
               disabled={selectedIds.size === 0 || !onAttachMultiToVirtualTour}
             >
               <Box className="h-4 w-4 mr-2" />
-              Attach to Virtual Tour
+              Attach to Tour
             </Button>
-            <Button 
-              size="sm" 
-              variant="ghost"
-              onClick={handleClearSelection}
+            <div className="w-px h-6 bg-border mx-1" />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleDownloadMulti(Array.from(selectedIds))}
+              disabled={!!downloadingId}
             >
-              <X className="h-4 w-4 mr-2" />
-              Clear
+              <Download className="h-4 w-4 mr-2" />
+              Download
             </Button>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               variant="destructive"
               onClick={handleBulkDeleteRequest}
               disabled={selectedIds.size === 0}
             >
               <Trash2 className="h-4 w-4 mr-2" />
-              Delete Selected ({selectedIds.size})
+              Delete {selectedIds.size}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleClearSelection}
+            >
+              <X className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -1040,26 +1234,44 @@ export const CreationsTab = memo(function CreationsTab({
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Image className="h-5 w-5" />
-                {viewMode === "all" ? `All Creations (${creations.length})` : "Pipeline Runs"}
+                {viewMode === "all" ? `All Creations (${creations.length})` : viewMode === "uploads" ? `Project Uploads (${uploadCreations.length})` : "Pipeline Runs"}
               </CardTitle>
               <CardDescription>
-                {viewMode === "all" 
+                {viewMode === "all"
                   ? "All images generated across pipelines and jobs. Use these as inputs for other stages."
-                  : "Pipeline outputs organized by run and generation step."
+                  : viewMode === "uploads"
+                    ? "Manage your floor plans, design references, and panorama uploads."
+                    : "Pipeline outputs organized by run and generation step."
                 }
               </CardDescription>
             </div>
+            {viewMode === "uploads" && (
+              <div className="flex items-center gap-2 bg-muted/30 p-1 rounded-lg border">
+                {(["all", "floor_plan", "design_ref", "panorama", "output"] as const).map((k) => (
+                  <Button
+                    key={k}
+                    variant={uploadFilterKind === k ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-7 px-2 text-xs capitalize"
+                    onClick={() => setUploadFilterKind(k)}
+                  >
+                    {k.replace('_', ' ')}
+                  </Button>
+                ))}
+              </div>
+            )}
             <div className="flex items-center gap-3 flex-wrap">
               {/* View mode toggle */}
               <CreationsViewToggle
                 viewMode={viewMode}
                 onViewModeChange={handleViewModeChange}
                 pipelineCount={pipelineCreations.length}
-                otherCount={otherCreations.length}
+                uploadCount={uploadCreations.length}
+                allCount={creations.length}
               />
               {/* Selection mode toggle */}
-              <Button 
-                variant={isSelectionMode ? "default" : "outline"} 
+              <Button
+                variant={isSelectionMode ? "default" : "outline"}
                 size="sm"
                 onClick={handleToggleSelectionMode}
               >
@@ -1099,6 +1311,22 @@ export const CreationsTab = memo(function CreationsTab({
               renderCreation={renderCreation}
               projectId={projectId}
             />
+          ) : viewMode === "uploads" ? (
+            /* Uploads view - Project raw uploads */
+            <VirtualizedImageGrid
+              items={uploadCreations}
+              renderItem={renderCreation}
+              getKey={(c) => c.id}
+              pageSize={24}
+              thumbnailSize={thumbnailSize}
+              emptyMessage={
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <Upload className="h-12 w-12 mb-4" />
+                  <p>No project uploads yet</p>
+                  <p className="text-sm">Upload some floor plans, design references, or panoramas to see them here</p>
+                </div>
+              }
+            />
           ) : (
             /* Flat grid view - All creations */
             <VirtualizedImageGrid
@@ -1128,19 +1356,19 @@ export const CreationsTab = memo(function CreationsTab({
               ATTACH FROM CREATIONS
             </DialogTitle>
             <DialogDescription>
-              {attachModalDestination === "panorama" 
+              {attachModalDestination === "panorama"
                 ? "Use this image as input for the Panorama workflow."
                 : "Use this image for editing and modifications."}
             </DialogDescription>
           </DialogHeader>
-          
+
           {attachModalCreation && (
             <div className="space-y-4">
               {/* Image preview with checkmark */}
               <div className="relative aspect-video rounded-lg overflow-hidden bg-muted border-2 border-primary">
                 {attachModalPreviewUrl ? (
-                  <img 
-                    src={attachModalPreviewUrl} 
+                  <img
+                    src={attachModalPreviewUrl}
                     alt="Selected creation"
                     className="w-full h-full object-cover"
                   />
@@ -1154,7 +1382,7 @@ export const CreationsTab = memo(function CreationsTab({
                   <Check className="h-4 w-4" />
                 </div>
               </div>
-              
+
               {/* Image info */}
               <div className="text-sm text-muted-foreground">
                 <p className="font-medium text-foreground">
@@ -1173,8 +1401,8 @@ export const CreationsTab = memo(function CreationsTab({
             </Button>
             <Button onClick={handleConfirmAttach}>
               <ArrowRight className="h-4 w-4 mr-2" />
-              {attachModalDestination === "panorama" 
-                ? "Use as Panorama Input" 
+              {attachModalDestination === "panorama"
+                ? "Use as Panorama Input"
                 : "Start Editing"}
             </Button>
           </DialogFooter>
@@ -1186,37 +1414,60 @@ export const CreationsTab = memo(function CreationsTab({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {bulkDeleteMode 
-                ? `Delete ${selectedIds.size} images?` 
-                : "Delete this creation?"}
+              {isPermanentDelete
+                ? `Permanently Delete ${bulkDeleteMode ? `these ${selectedIds.size} files` : "this file"}?`
+                : `Hide ${bulkDeleteMode ? `these ${selectedIds.size} files` : "this file"}?`}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {bulkDeleteMode ? (
-                <>
-                  This will permanently remove {selectedIds.size} images from your creations. This action cannot be undone.
-                </>
-              ) : (
-                <>
-                  This will permanently remove the image from your creations. This action cannot be undone.
-                  {creationToDelete && attachments.some(a => a.uploadId === creationToDelete.id) && (
-                    <span className="block mt-2 text-destructive/80">
-                      ⚠️ This image is currently attached elsewhere. Deleting will remove that attachment.
-                    </span>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4 pt-2">
+                {deleteWarning && (
+                  <div className="bg-destructive/10 text-destructive p-3 rounded-md text-sm font-medium flex gap-2">
+                    <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{deleteWarning}</span>
+                  </div>
+                )}
+
+                <p className="text-sm text-muted-foreground">
+                  {isPermanentDelete ? (
+                    "This action CANNOT be undone. The file will be removed from storage and the database permanently."
+                  ) : (
+                    "This file will be hidden everywhere in the app, but its database record is preserved to keep existing jobs working. You can restore it later if needed."
                   )}
-                </>
-              )}
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleConfirmDelete}
-              disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
-              Delete
-            </AlertDialogAction>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2 mt-4">
+            {!isPermanentDelete && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground mr-auto h-8"
+                onClick={() => setIsPermanentDelete(true)}
+              >
+                Switch to Permanent
+              </Button>
+            )}
+            <div className="flex gap-2 w-full sm:w-auto">
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className={isPermanentDelete ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (isPermanentDelete) {
+                    handlePermanentDelete();
+                  } else {
+                    handleConfirmDelete();
+                  }
+                }}
+                disabled={isDeleting || (isPermanentDelete && !!deleteWarning)}
+              >
+                {isDeleting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                {isPermanentDelete ? "Permanently Delete" : "Hide (Soft Delete)"}
+              </AlertDialogAction>
+            </div>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

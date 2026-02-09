@@ -72,19 +72,20 @@ export function useFloorplanPipelines(projectId: string) {
         .from("floorplan_pipelines")
         .select(`
           *,
-          floor_plan:uploads!floorplan_pipelines_floor_plan_upload_id_fkey(id, original_filename, bucket, path)
+          floor_plan:uploads!floorplan_pipelines_floor_plan_upload_id_fkey(id, original_filename, bucket, path, deleted_at)
         `)
         .eq("project_id", projectId)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return data as FloorplanPipeline[];
+      // Filter out pipelines where the source floor plan has been deleted
+      return (data || []).filter((p: any) => !p.floor_plan || !p.floor_plan.deleted_at) as FloorplanPipeline[];
     },
     enabled: !!user && !!projectId
   });
 
   const createPipeline = useMutation({
-    mutationFn: async ({ 
+    mutationFn: async ({
       floorPlanUploadId,
       outputResolution = "2K",
       aspectRatio = "16:9",
@@ -92,7 +93,7 @@ export function useFloorplanPipelines(projectId: string) {
       inputUploadId,
       attachSource, // NEW: track if created from Creations attach
       pipelineMode = "legacy" // NEW: pipeline mode
-    }: { 
+    }: {
       floorPlanUploadId: string;
       outputResolution?: string;
       aspectRatio?: string;
@@ -105,7 +106,7 @@ export function useFloorplanPipelines(projectId: string) {
 
       // Build step_outputs if starting from a later step
       let stepOutputs: Record<string, any> = {};
-      
+
       // NEW: Track attach origin metadata
       if (attachSource) {
         stepOutputs._attach_origin = {
@@ -114,15 +115,15 @@ export function useFloorplanPipelines(projectId: string) {
           attached_at: new Date().toISOString()
         };
       }
-      
+
       if (startFromStep > 1 && inputUploadId) {
         // Mark previous steps as "skipped" with the provided input as their output
         for (let s = 1; s < startFromStep; s++) {
           stepOutputs[`step${s}`] = {
             output_upload_id: inputUploadId,
             qa_decision: "approved",
-            qa_reason: attachSource 
-              ? "Attached from Creations" 
+            qa_reason: attachSource
+              ? "Attached from Creations"
               : "Skipped - using imported image from Creations"
           };
         }
@@ -157,12 +158,12 @@ export function useFloorplanPipelines(projectId: string) {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", projectId] });
       const startStep = variables.startFromStep || 1;
       const isAttached = !!variables.attachSource;
-      toast({ 
-        title: isAttached 
-          ? `Pipeline created from attached image (Step ${startStep})` 
-          : startStep > 1 
-            ? `Pipeline created starting from Step ${startStep}` 
-            : "Pipeline created" 
+      toast({
+        title: isAttached
+          ? `Pipeline created from attached image (Step ${startStep})`
+          : startStep > 1
+            ? `Pipeline created starting from Step ${startStep}`
+            : "Pipeline created"
       });
     },
     onError: (error) => {
@@ -190,19 +191,19 @@ export function useFloorplanPipelines(projectId: string) {
     "space_analysis_pending": "run-space-analysis",
     "space_analysis_running": "run-space-analysis", // Already running, but route correctly
     "space_analysis_complete": "run-space-analysis", // Re-run if needed
-    
+
     // Step 4: Detect Spaces phases → run-detect-spaces
     "detect_spaces_pending": "run-detect-spaces",
     "detecting_spaces": "run-detect-spaces",
     "spaces_detected": "run-detect-spaces",
-    
+
     // Steps 1, 2, 3, 5, 6, 7 use run-pipeline-step (default fallback)
   };
 
   const startStep = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      cameraPosition, 
+    mutationFn: async ({
+      pipelineId,
+      cameraPosition,
       forwardDirection,
       designRefUploadIds,
       styleTitle,
@@ -211,8 +212,8 @@ export function useFloorplanPipelines(projectId: string) {
       autoRerenderAttempt = 0,
       step3PresetId,
       step3CustomPrompt
-    }: { 
-      pipelineId: string; 
+    }: {
+      pipelineId: string;
       cameraPosition?: string;
       forwardDirection?: string;
       designRefUploadIds?: string[];
@@ -237,17 +238,17 @@ export function useFloorplanPipelines(projectId: string) {
 
       const currentStep = pipelineMeta.current_step ?? 1;
       const phase = pipelineMeta.whole_apartment_phase ?? "upload";
-      
+
       // Determine target function from phase map
       const targetFunction = PHASE_TO_FUNCTION[phase] ?? "run-pipeline-step";
-      
+
       // Log routing decision for debugging
       console.log(`[startStep] Routing decision: phase="${phase}", currentStep=${currentStep}, targetFunction="${targetFunction}"`);
 
       // ─────────────────────────────────────────────────────────────────────
       // ROUTE TO CORRECT EDGE FUNCTION
       // ─────────────────────────────────────────────────────────────────────
-      
+
       if (targetFunction === "run-space-analysis") {
         console.log(`[startStep] Invoking run-space-analysis for phase="${phase}"`);
         const { data, error } = await supabase.functions.invoke("run-space-analysis", {
@@ -263,7 +264,7 @@ export function useFloorplanPipelines(projectId: string) {
         }
         return data;
       }
-      
+
       if (targetFunction === "run-detect-spaces") {
         console.log(`[startStep] Invoking run-detect-spaces for phase="${phase}"`);
         const { data, error } = await supabase.functions.invoke("run-detect-spaces", {
@@ -304,20 +305,20 @@ export function useFloorplanPipelines(projectId: string) {
         console.error(`[startStep] run-pipeline-step returned error:`, data.error);
         throw new Error(data.error);
       }
-      
+
       // Handle QA auto-rerender loop response
       if (data?.autoRerender === true) {
         console.log(`[Pipeline] QA auto-rerender triggered: attempt ${data.attempt}/${data.maxAttempts}`);
-        
+
         toast({
           title: `Auto-rerender in progress (${data.attempt}/${data.maxAttempts})`,
           description: `QA rejected: ${data.qaReason?.slice(0, 80)}...`,
         });
-        
+
         await new Promise(r => setTimeout(r, 1500));
-        
-        return startStep.mutateAsync({ 
-          pipelineId, 
+
+        return startStep.mutateAsync({
+          pipelineId,
           cameraPosition: data.camera_position,
           forwardDirection: data.forward_direction,
           designRefUploadIds,
@@ -326,12 +327,12 @@ export function useFloorplanPipelines(projectId: string) {
           autoRerenderAttempt: data.attempt
         });
       }
-      
+
       return data;
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", projectId] });
-      
+
       if (data?.autoRerender !== true) {
         if (variables.isAutoRerender) {
           toast({ title: "Auto-rerender completed successfully!" });
@@ -351,12 +352,12 @@ export function useFloorplanPipelines(projectId: string) {
   });
 
   const approveStep = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
+    mutationFn: async ({
+      pipelineId,
       stepNumber,
       notes
-    }: { 
-      pipelineId: string; 
+    }: {
+      pipelineId: string;
       stepNumber: number;
       notes?: string;
     }) => {
@@ -395,10 +396,10 @@ export function useFloorplanPipelines(projectId: string) {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", projectId] });
-      toast({ 
-        title: data.nextStatus === "completed" 
-          ? "Pipeline completed!" 
-          : `Step approved - Ready for step ${data.nextStep}` 
+      toast({
+        title: data.nextStatus === "completed"
+          ? "Pipeline completed!"
+          : `Step approved - Ready for step ${data.nextStep}`
       });
     },
     onError: (error) => {
@@ -411,13 +412,13 @@ export function useFloorplanPipelines(projectId: string) {
   });
 
   const rejectStep = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
+    mutationFn: async ({
+      pipelineId,
       stepNumber,
       notes,
       autoRerender = true // New: auto-trigger rerender after rejection
-    }: { 
-      pipelineId: string; 
+    }: {
+      pipelineId: string;
       stepNumber: number;
       notes?: string;
       autoRerender?: boolean;
@@ -449,7 +450,7 @@ export function useFloorplanPipelines(projectId: string) {
       // Update the step_outputs to mark this as rejected (but KEEP the output_upload_id)
       const currentOutputs = (pipeline?.step_outputs || {}) as Record<string, any>;
       const stepKey = `step${stepNumber}`;
-      
+
       // Track rejection history for Step 3 camera strategy
       const existingRejections = currentOutputs[stepKey]?.rejection_history || [];
       const updatedOutputs = {
@@ -495,10 +496,10 @@ export function useFloorplanPipelines(projectId: string) {
       }
 
       console.log(`[Pipeline] rejectStep: step ${stepNumber} rejected, autoRerender=${autoRerender}`);
-      
-      return { 
-        pipelineId, 
-        stepNumber, 
+
+      return {
+        pipelineId,
+        stepNumber,
         autoRerender,
         outputResolution: pipeline?.output_resolution,
         aspectRatio: pipeline?.aspect_ratio
@@ -506,11 +507,11 @@ export function useFloorplanPipelines(projectId: string) {
     },
     onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", projectId] });
-      
+
       // Auto-trigger rerender if enabled (with same Ratio/Quality)
       if (data.autoRerender) {
         toast({ title: "Step rejected - Starting auto re-render with same settings..." });
-        
+
         // Trigger the step to re-run automatically
         try {
           await startStep.mutateAsync({ pipelineId: data.pipelineId });
@@ -547,7 +548,7 @@ export function useFloorplanPipelines(projectId: string) {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["uploads", projectId] });
-      toast({ 
+      toast({
         title: "Attached to Panorama Uploads",
         description: "The pipeline output has been added to your panoramas"
       });
@@ -562,12 +563,12 @@ export function useFloorplanPipelines(projectId: string) {
   });
 
   const updateSettings = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      outputResolution, 
-      aspectRatio 
-    }: { 
-      pipelineId: string; 
+    mutationFn: async ({
+      pipelineId,
+      outputResolution,
+      aspectRatio
+    }: {
+      pipelineId: string;
       outputResolution: string;
       aspectRatio: string;
     }) => {
@@ -599,7 +600,7 @@ export function useFloorplanPipelines(projectId: string) {
       // Retry logic with exponential backoff for transient errors
       let lastError: Error | null = null;
       const maxRetries = 2;
-      
+
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
           const { data, error } = await supabase.functions.invoke("reset-floorplan-pipeline", {
@@ -608,8 +609,8 @@ export function useFloorplanPipelines(projectId: string) {
 
           if (error) {
             // Check for transient errors
-            const isTransient = error.message?.includes('503') || 
-                               error.message?.includes('BOOT_ERROR');
+            const isTransient = error.message?.includes('503') ||
+              error.message?.includes('BOOT_ERROR');
             if (isTransient && attempt < maxRetries) {
               await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
               lastError = error;
@@ -626,7 +627,7 @@ export function useFloorplanPipelines(projectId: string) {
           }
         }
       }
-      
+
       throw lastError || new Error("Failed to reset pipeline");
     },
     onSuccess: (data) => {
@@ -634,7 +635,7 @@ export function useFloorplanPipelines(projectId: string) {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", projectId] });
       queryClient.invalidateQueries({ queryKey: ["pipeline-events"] });
       queryClient.invalidateQueries({ queryKey: ["pipeline-reviews"] });
-      toast({ 
+      toast({
         title: "Pipeline reset",
         description: "Ready to start Step 1."
       });
@@ -707,21 +708,21 @@ export function useFloorplanPipelines(projectId: string) {
   const skipToStep = useMutation({
     mutationFn: async ({ pipelineId, targetStep }: { pipelineId: string; targetStep: number }) => {
       if (!user) throw new Error("Not authenticated");
-      
+
       // Get the current pipeline to mark previous step as skipped
       const { data: pipeline, error: pipelineErr } = await supabase
         .from("floorplan_pipelines")
         .select("current_step, step_outputs")
         .eq("id", pipelineId)
         .single();
-      
+
       if (pipelineErr) throw pipelineErr;
-      
+
       const currentStep = pipeline?.current_step || 1;
       if (targetStep <= currentStep) {
         throw new Error("Cannot skip to a previous or current step");
       }
-      
+
       // Update step outputs to mark current step as "skipped forward"
       const stepOutputs = (pipeline?.step_outputs || {}) as Record<string, any>;
       stepOutputs[`step${currentStep}`] = {
@@ -729,7 +730,7 @@ export function useFloorplanPipelines(projectId: string) {
         skipped_forward: true,
         skipped_at: new Date().toISOString()
       };
-      
+
       // Update pipeline to target step
       const { error: updateError } = await supabase
         .from("floorplan_pipelines")
@@ -740,9 +741,9 @@ export function useFloorplanPipelines(projectId: string) {
           updated_at: new Date().toISOString()
         })
         .eq("id", pipelineId);
-      
+
       if (updateError) throw updateError;
-      
+
       // Insert review for skipped step
       await supabase.from("floorplan_pipeline_reviews").insert({
         pipeline_id: pipelineId,
@@ -751,7 +752,7 @@ export function useFloorplanPipelines(projectId: string) {
         decision: "approved",
         notes: `Skipped forward to Step ${targetStep}`
       });
-      
+
       return { pipelineId, targetStep };
     },
     onSuccess: (data) => {
@@ -772,24 +773,24 @@ export function useFloorplanPipelines(projectId: string) {
     mutationFn: async ({ pipelineId, targetStep }: { pipelineId: string; targetStep: number }) => {
       if (!user) throw new Error("Not authenticated");
       if (targetStep < 1) throw new Error("Cannot go back before Step 1");
-      
+
       // Get the current pipeline
       const { data: pipeline, error: pipelineErr } = await supabase
         .from("floorplan_pipelines")
         .select("current_step, step_outputs")
         .eq("id", pipelineId)
         .single();
-      
+
       if (pipelineErr) throw pipelineErr;
-      
+
       const currentStep = pipeline?.current_step || 1;
       if (targetStep >= currentStep) {
         throw new Error("Cannot go back to current or future step");
       }
-      
+
       const stepOutputs = (pipeline?.step_outputs || {}) as Record<string, any>;
       const outputsToDelete: string[] = [];
-      
+
       // Collect all output upload IDs to delete (from targetStep onwards)
       for (let step = targetStep; step <= 4; step++) {
         const stepData = stepOutputs[`step${step}`];
@@ -807,9 +808,9 @@ export function useFloorplanPipelines(projectId: string) {
         // Clear the step output
         delete stepOutputs[`step${step}`];
       }
-      
+
       console.log(`[Pipeline GoBack] Deleting ${outputsToDelete.length} outputs from steps ${targetStep}-4`);
-      
+
       // Delete from uploads table (this also triggers storage cleanup from Creations)
       if (outputsToDelete.length > 0) {
         for (const uploadId of outputsToDelete) {
@@ -818,27 +819,27 @@ export function useFloorplanPipelines(projectId: string) {
             .delete()
             .eq("id", uploadId)
             .eq("owner_id", user.id);
-          
+
           if (deleteError) {
             console.warn(`[Pipeline GoBack] Failed to delete upload ${uploadId}:`, deleteError);
           }
         }
       }
-      
+
       // Delete reviews for steps >= targetStep
       await supabase
         .from("floorplan_pipeline_reviews")
         .delete()
         .eq("pipeline_id", pipelineId)
         .gte("step_number", targetStep);
-      
+
       // Delete events for steps >= targetStep
       await supabase
         .from("floorplan_pipeline_events")
         .delete()
         .eq("pipeline_id", pipelineId)
         .gte("step_number", targetStep);
-      
+
       // Update pipeline to target step
       const { error: updateError } = await supabase
         .from("floorplan_pipelines")
@@ -850,9 +851,9 @@ export function useFloorplanPipelines(projectId: string) {
           updated_at: new Date().toISOString()
         })
         .eq("id", pipelineId);
-      
+
       if (updateError) throw updateError;
-      
+
       return { pipelineId, targetStep, deletedCount: outputsToDelete.length };
     },
     onSuccess: (data) => {
@@ -860,7 +861,7 @@ export function useFloorplanPipelines(projectId: string) {
       queryClient.invalidateQueries({ queryKey: ["pipeline-events"] });
       queryClient.invalidateQueries({ queryKey: ["pipeline-reviews"] });
       queryClient.invalidateQueries({ queryKey: ["creations", projectId] });
-      toast({ 
+      toast({
         title: `Returned to Step ${data.targetStep}`,
         description: `${data.deletedCount} output(s) deleted`
       });
@@ -876,12 +877,12 @@ export function useFloorplanPipelines(projectId: string) {
 
   // Toggle pipeline enabled state (pause/resume)
   const togglePipelineEnabled = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      enabled, 
-      pauseReason 
-    }: { 
-      pipelineId: string; 
+    mutationFn: async ({
+      pipelineId,
+      enabled,
+      pauseReason
+    }: {
+      pipelineId: string;
       enabled: boolean;
       pauseReason?: string;
     }) => {
@@ -912,10 +913,10 @@ export function useFloorplanPipelines(projectId: string) {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", projectId] });
-      toast({ 
+      toast({
         title: data.enabled ? "Pipeline resumed" : "Pipeline paused",
-        description: data.enabled 
-          ? "Jobs will now continue processing" 
+        description: data.enabled
+          ? "Jobs will now continue processing"
           : "No new jobs will be created"
       });
     },
@@ -952,7 +953,7 @@ export function usePipelineEvents(pipelineId: string | null) {
     queryKey: ["pipeline-events", pipelineId],
     queryFn: async () => {
       if (!pipelineId) return [];
-      
+
       const { data, error } = await supabase
         .from("floorplan_pipeline_events")
         .select("*")
@@ -973,7 +974,7 @@ export function usePipelineReviews(pipelineId: string | null) {
     queryKey: ["pipeline-reviews", pipelineId],
     queryFn: async () => {
       if (!pipelineId) return [];
-      
+
       const { data, error } = await supabase
         .from("floorplan_pipeline_reviews")
         .select("*")

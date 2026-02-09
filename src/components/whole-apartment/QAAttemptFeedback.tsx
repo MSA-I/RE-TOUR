@@ -67,7 +67,7 @@ export const QAAttemptFeedback = memo(function QAAttemptFeedback({
 
   const handleSubmit = () => {
     if (!selectedVote) return;
-    onSubmit(selectedVote, category, comment.slice(0, 200));
+    onSubmit(selectedVote, category, comment.slice(0, 500));
     setSubmitted(true);
     setShowForm(false);
   };
@@ -147,16 +147,16 @@ export const QAAttemptFeedback = memo(function QAAttemptFeedback({
           </div>
 
           <Textarea
-            placeholder="Optional: why is the QA decision correct/wrong? (max 200 chars)"
+            placeholder="Optional: why is the QA decision correct/wrong? (max 500 chars)"
             value={comment}
-            onChange={(e) => setComment(e.target.value.slice(0, 200))}
+            onChange={(e) => setComment(e.target.value.slice(0, 500))}
             className="h-14 text-xs resize-none"
-            maxLength={200}
+            maxLength={500}
           />
 
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-muted-foreground">
-              {comment.length}/200
+              {comment.length}/500
             </span>
             <div className="flex gap-2">
               <Button

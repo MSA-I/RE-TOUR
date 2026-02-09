@@ -66,13 +66,13 @@ export function QAScoreInput({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 3);
     setInputValue(val);
-    
+
     if (!val) {
       setLocalError(null);
       onScoreChange(null);
       return;
     }
-    
+
     const num = parseInt(val, 10);
     if (num < 0 || num > 100) {
       setLocalError("Enter 0–100");
@@ -109,10 +109,10 @@ export function QAScoreInput({
             </div>
           )}
         </div>
-        
+
         {score != null && !displayError && (
-          <Badge 
-            variant="outline" 
+          <Badge
+            variant="outline"
             className={cn("text-xs", getScoreLabel(score).color)}
           >
             {getScoreLabel(score).text}
@@ -196,22 +196,22 @@ export function QAReviewPanel({
 }: QAReviewPanelProps) {
   const [score, setScore] = useState<number | null>(initialScore);
   const [note, setNote] = useState<string>(initialNote || "");
-  
+
   const isSubmitting = isApproving || isRejecting;
 
   // Persist feedback to qa_attempt_feedback
   const persistFeedback = async (decision: "approved" | "rejected") => {
     if (!autoPersistFeedback) return;
-    
+
     try {
       const user = await supabase.auth.getUser();
       const ownerId = user.data.user?.id;
       if (!ownerId) return;
 
-      const userVote = decision === "approved" 
+      const userVote = decision === "approved"
         ? (score !== null && score >= 70 ? "like" : "neutral")
         : "dislike";
-      
+
       // Map score to category
       let userCategory = category;
       if (score !== null) {
@@ -220,7 +220,7 @@ export function QAReviewPanel({
         else if (score < 70) userCategory = "flooring_mismatch";
       }
 
-      const comment = score !== null 
+      const comment = score !== null
         ? `Score: ${score}${note ? ` — ${note}` : ""}`
         : note || `${decision === "approved" ? "Approved" : "Rejected"} without score`;
 
@@ -286,13 +286,13 @@ export function QAReviewPanel({
           </Label>
           <Textarea
             value={note}
-            onChange={(e) => setNote(e.target.value.slice(0, 200))}
+            onChange={(e) => setNote(e.target.value.slice(0, 500))}
             placeholder="What could be improved? Any specific issues?"
             className="h-16 text-sm resize-none"
             disabled={isSubmitting}
           />
           <span className="text-[10px] text-muted-foreground">
-            {note.length}/200
+            {note.length}/500
           </span>
         </div>
       )}
@@ -452,7 +452,7 @@ export function QAReviewInline({
         className="w-16 h-7 text-xs font-mono text-center"
         disabled={isSubmitting}
       />
-      
+
       <Button
         size="sm"
         variant="ghost"
@@ -466,7 +466,7 @@ export function QAReviewInline({
           <ThumbsUp className="h-3.5 w-3.5" />
         )}
       </Button>
-      
+
       <Button
         size="sm"
         variant="ghost"
@@ -539,7 +539,7 @@ export function QAScoreSave({
 
   const handleSave = useCallback(async () => {
     if (score === null) return;
-    
+
     setIsSubmitting(true);
     try {
       const user = await supabase.auth.getUser();
@@ -553,7 +553,7 @@ export function QAScoreSave({
       else if (score < 70) userCategory = "flooring_mismatch";
 
       const comment = note.trim()
-        ? `Score: ${score} — ${note.trim().slice(0, 150)}`
+        ? `Score: ${score} — ${note.trim().slice(0, 500)}`
         : `Score: ${score}`;
 
       await supabase.from("qa_attempt_feedback").insert({
@@ -641,13 +641,13 @@ export function QAScoreSave({
           </Label>
           <Textarea
             value={note}
-            onChange={(e) => setNote(e.target.value.slice(0, 200))}
+            onChange={(e) => setNote(e.target.value.slice(0, 500))}
             placeholder="What could be improved?"
             className="h-16 text-sm resize-none"
             disabled={isSubmitting}
           />
           <span className="text-[10px] text-muted-foreground">
-            {note.length}/200
+            {note.length}/500
           </span>
         </div>
       )}

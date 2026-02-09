@@ -75,9 +75,9 @@ function PipelineStepOutputsComponent({
   const [focusedStep, setFocusedStep] = useState<number | null>(null);
   // Prompt copy state
   const [copiedPrompt, setCopiedPrompt] = useState<number | null>(null);
-  
+
   const { getSignedViewUrl } = useStorage();
-  
+
   // Track what we've already loaded to prevent re-fetching
   const loadedIdsRef = useRef<Set<string>>(new Set());
   const loadingRef = useRef<Set<string>>(new Set());
@@ -108,17 +108,18 @@ function PipelineStepOutputsComponent({
     if (loadedIdsRef.current.has(uploadId) || loadingRef.current.has(uploadId)) {
       return;
     }
-    
+
     loadingRef.current.add(uploadId);
     setLoadingImages(prev => new Set(prev).add(uploadId));
-    
+
     try {
       const { data: upload } = await supabase
         .from("uploads")
         .select("bucket, path")
         .eq("id", uploadId)
+        .is("deleted_at", null)
         .single();
-        
+
       if (upload && isMountedRef.current) {
         const result = await getSignedViewUrl(upload.bucket, upload.path);
         if (result.signedUrl && isMountedRef.current) {
@@ -143,11 +144,11 @@ function PipelineStepOutputsComponent({
   // Load images when stepOutputs change - but only new ones
   useEffect(() => {
     isMountedRef.current = true;
-    
+
     const idsToLoad = getUploadIdsToLoad();
     // Filter to only IDs not yet loaded
     const newIds = idsToLoad.filter(id => !loadedIdsRef.current.has(id));
-    
+
     // Load new IDs with small stagger to avoid overwhelming backend
     newIds.forEach((id, index) => {
       setTimeout(() => {
@@ -156,7 +157,7 @@ function PipelineStepOutputsComponent({
         }
       }, index * 100); // 100ms stagger
     });
-    
+
     return () => {
       isMountedRef.current = false;
     };
@@ -164,21 +165,21 @@ function PipelineStepOutputsComponent({
 
   const handleCompare = async (step: number) => {
     setCompareStep(step);
-    
+
     // Get before and after images
     let beforeId: string;
     const afterId = stepOutputs[`step${step}`]?.output_upload_id;
-    
+
     if (step === 1) {
       beforeId = floorPlanUploadId;
     } else {
       const prevOutput = stepOutputs[`step${step - 1}`];
       beforeId = prevOutput?.output_upload_id || floorPlanUploadId;
     }
-    
+
     const before = imageUrls[beforeId];
     const after = afterId ? imageUrls[afterId] : undefined;
-    
+
     if (before && after) {
       setBeforeUrl(before);
       setAfterUrl(after);
@@ -209,10 +210,10 @@ function PipelineStepOutputsComponent({
     const qaDecision = output.qa_decision || output.approval_status;
     const isRejected = qaDecision === "rejected";
     const isApproved = qaDecision === "approved";
-    
+
     return (
-      <Card 
-        key={`${step}-${outputIndex}`} 
+      <Card
+        key={`${step}-${outputIndex}`}
         className={`overflow-hidden flex flex-col ${isRejected ? "border-red-500/50" : isApproved ? "border-green-500/30" : ""}`}
       >
         <CardHeader className="p-3 pb-2">
@@ -274,8 +275,8 @@ function PipelineStepOutputsComponent({
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             ) : imageUrl ? (
               <>
-                <img 
-                  src={imageUrl} 
+                <img
+                  src={imageUrl}
                   alt={`Step ${step} output ${outputIndex + 1}`}
                   className="w-full h-full object-cover"
                   loading="lazy"
@@ -392,14 +393,14 @@ function PipelineStepOutputsComponent({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 auto-rows-fr">
           {completedSteps.flatMap((step) => {
             const stepData = stepOutputs[`step${step}`];
-            
+
             // Multi-output format (Steps 2, 3, 4 can have arrays)
             if (stepData?.outputs && Array.isArray(stepData.outputs) && stepData.outputs.length > 0) {
-              return stepData.outputs.map((output: SingleOutput, idx: number) => 
+              return stepData.outputs.map((output: SingleOutput, idx: number) =>
                 renderOutputCard(step, output, idx, true, stepData)
               );
             }
-            
+
             // Single-output format (backward compat)
             if (stepData?.output_upload_id) {
               const singleOutput: SingleOutput = {
@@ -412,7 +413,7 @@ function PipelineStepOutputsComponent({
               };
               return [renderOutputCard(step, singleOutput, 0, false, stepData)];
             }
-            
+
             return [];
           })}
         </div>

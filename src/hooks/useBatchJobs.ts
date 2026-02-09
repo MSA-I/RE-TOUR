@@ -52,7 +52,7 @@ export function useBatchJobs(projectId: string) {
         .select("*")
         .eq("project_id", projectId)
         .order("created_at", { ascending: false });
-      
+
       if (error) throw error;
       return data as BatchJob[];
     },
@@ -64,7 +64,7 @@ export function useBatchJobs(projectId: string) {
     if (!projectId || !user) return;
 
     let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
-    
+
     const channel = supabase
       .channel(`batch_jobs_${projectId}`)
       .on(
@@ -105,7 +105,7 @@ export function useBatchJobs(projectId: string) {
       outputResolution?: string;
     }) => {
       if (!user) throw new Error("Not authenticated");
-      
+
       // Enforce limits: 1-20 panoramas per batch
       if (panoramaUploadIds.length === 0) throw new Error("At least 1 panorama is required");
       if (panoramaUploadIds.length > 20) throw new Error("Maximum 20 panoramas per batch");
@@ -179,18 +179,19 @@ export function useBatchJobItems(batchJobId: string | null) {
     queryKey: ["batch_job_items", batchJobId],
     queryFn: async () => {
       if (!batchJobId) return [];
-      
+
       const { data, error } = await supabase
         .from("batch_jobs_items")
         .select(`
           *,
-          panorama:uploads!batch_jobs_items_panorama_upload_id_fkey(id, original_filename)
+          panorama:uploads!batch_jobs_items_panorama_upload_id_fkey(id, original_filename, deleted_at)
         `)
         .eq("batch_job_id", batchJobId)
         .order("created_at", { ascending: true });
-      
+
       if (error) throw error;
-      return data as BatchJobItem[];
+      // Filter out items where the source panorama has been deleted
+      return (data || []).filter((item: any) => !item.panorama || !item.panorama.deleted_at) as BatchJobItem[];
     },
     enabled: !!user && !!batchJobId
   });
@@ -200,7 +201,7 @@ export function useBatchJobItems(batchJobId: string | null) {
     if (!batchJobId || !user) return;
 
     let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
-    
+
     const channel = supabase
       .channel(`batch_job_items_${batchJobId}`)
       .on(

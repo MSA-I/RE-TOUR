@@ -3,6 +3,7 @@ import { useParams, Navigate, Link, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { compressFloorPlanImage, formatCompressionMetrics } from "@/lib/image-compression";
 import { useProject } from "@/hooks/useProjects";
 import { useUploads } from "@/hooks/useUploads";
 import { useRenderJobs } from "@/hooks/useRenderJobs";
@@ -187,11 +188,11 @@ export default function ProjectDetail() {
   const { progress: realTimeProgress, latestMessage, isComplete } = useJobProgress(runningJob?.id || null);
 
   const handleFileUpload = useCallback(async (
-    files: FileList | null, 
+    files: FileList | null,
     kind: "panorama" | "design_ref" | "floor_plan"
   ) => {
     if (!files) return;
-    
+
     // New limits: 20 panoramas, 8 design refs, 20 floor plans
     const maxFiles = kind === "panorama" ? 20 : kind === "design_ref" ? 8 : 20;
     const currentCount = kind === "panorama" ? panoramas.length : kind === "design_ref" ? designRefs.length : floorPlans.length;
@@ -207,12 +208,70 @@ export default function ProjectDetail() {
     }
 
     const filesToUpload = Array.from(files).slice(0, allowedCount);
-    
+
     setUploading(true);
     try {
       for (const file of filesToUpload) {
+        let fileToUpload = file;
+
+        // FLOOR PLAN COMPRESSION: Auto-compress before upload to prevent Edge Function memory exhaustion
+        // DEBUG MODE: Set localStorage.skipCompression = "true" to bypass compression
+        const skipCompression = localStorage.getItem("skipCompression") === "true";
+
+        if (kind === "floor_plan" && file.type.startsWith("image/") && !skipCompression) {
+          toast({
+            title: "Compressing floor plan...",
+            description: `Optimizing ${file.name} for upload`,
+          });
+
+          const compressionResult = await compressFloorPlanImage(file, {
+            maxFileSizeMB: 10,
+            targetFileSizeMB: 8,
+            maxDimension: 2400,
+            initialQuality: 0.8,
+            minQuality: 0.6,
+            outputFormat: "jpeg",
+          });
+
+          if (!compressionResult.success) {
+            toast({
+              title: "Compression failed",
+              description: compressionResult.error || "Unable to compress image",
+              variant: "destructive",
+            });
+            console.error("[FloorPlanUpload] Compression failed:", compressionResult.error);
+            console.error("[FloorPlanUpload] Metrics:", formatCompressionMetrics(compressionResult.metrics));
+            continue; // Skip this file
+          }
+
+          fileToUpload = compressionResult.compressedFile!;
+
+          // Log compression metrics to console for debugging
+          const metrics = formatCompressionMetrics(compressionResult.metrics);
+          console.log(`[FloorPlanUpload] Compressed ${file.name}:`, metrics);
+
+          // Show success toast with compression stats
+          const originalMB = parseFloat(metrics.original_size_mb as string);
+          const compressedMB = parseFloat(metrics.compressed_size_mb as string);
+          const saved = originalMB - compressedMB;
+
+          if (saved > 0.5) { // Only show if significant savings
+            toast({
+              title: "Floor plan optimized",
+              description: `Reduced from ${originalMB.toFixed(1)}MB to ${compressedMB.toFixed(1)}MB (saved ${saved.toFixed(1)}MB)`,
+            });
+          }
+        } else if (skipCompression && kind === "floor_plan") {
+          console.warn("[FloorPlanUpload] Compression bypassed (debug mode)");
+          toast({
+            title: "Debug mode: Compression skipped",
+            description: "Uploading original file",
+            variant: "default",
+          });
+        }
+
         const createFn = kind === "panorama" ? createPanorama : kind === "design_ref" ? createDesignRef : createFloorPlan;
-        await createFn.mutateAsync({ file, kind });
+        await createFn.mutateAsync({ file: fileToUpload, kind });
       }
       toast({ title: `${filesToUpload.length} file(s) uploaded` });
     } catch (error) {

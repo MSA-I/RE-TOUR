@@ -14,10 +14,16 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LazyImage } from "@/components/LazyImage";
 import { AspectRatioPreview, AspectRatioSelectItemContent } from "@/components/AspectRatioPreview";
-import { 
+import {
   Loader2, Upload, Image, Wand2, X, Play, Check, AlertTriangle, Terminal, Trash2
 } from "lucide-react";
 import { format } from "date-fns";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { BeforeAfterSlider } from "@/components/BeforeAfterSlider";
 
 // =============================================================================
 // Types
@@ -47,10 +53,11 @@ interface TestJobEvent {
 }
 
 interface UploadedImage {
-  id: string;
+  id: string; // This will be the upload_id if reusing, or a local ID if new
   filename: string;
   previewUrl?: string;
   file?: File;
+  isReused?: boolean;
 }
 
 // =============================================================================
@@ -58,7 +65,7 @@ interface UploadedImage {
 // =============================================================================
 function useTestJobs(projectId: string) {
   const queryClient = useQueryClient();
-  
+
   const jobsQuery = useQuery({
     queryKey: ["test-jobs", projectId],
     queryFn: async () => {
@@ -149,9 +156,9 @@ const TestJobTerminal = memo(function TestJobTerminal({ jobId }: { jobId: string
                 </span>
                 <span className={
                   event.type === "error" ? "text-red-400" :
-                  event.type === "success" ? "text-green-400" :
-                  event.type === "progress" ? "text-blue-400" :
-                  "text-foreground"
+                    event.type === "success" ? "text-green-400" :
+                      event.type === "progress" ? "text-blue-400" :
+                        "text-foreground"
                 }>
                   [{event.type.toUpperCase()}]
                 </span>
@@ -201,17 +208,16 @@ const TestJobCard = memo(function TestJobCard({
     }
   }, [job.output?.id]);
 
-  const statusColor = 
+  const statusColor =
     job.status === "completed" ? "bg-green-500/20 text-green-400" :
-    job.status === "failed" ? "bg-destructive/20 text-destructive" :
-    job.status === "running" ? "bg-blue-500/20 text-blue-400" :
-    "bg-muted text-muted-foreground";
+      job.status === "failed" ? "bg-destructive/20 text-destructive" :
+        job.status === "running" ? "bg-blue-500/20 text-blue-400" :
+          "bg-muted text-muted-foreground";
 
   return (
-    <div 
-      className={`p-3 rounded-lg border cursor-pointer transition-all ${
-        isSelected ? "border-primary ring-1 ring-primary/20" : "border-border hover:border-primary/50"
-      }`}
+    <div
+      className={`p-3 rounded-lg border cursor-pointer transition-all ${isSelected ? "border-primary ring-1 ring-primary/20" : "border-border hover:border-primary/50"
+        }`}
       onClick={onSelect}
     >
       <div className="flex items-start gap-3">
@@ -248,7 +254,7 @@ const TestJobCard = memo(function TestJobCard({
 
         {/* Output thumbnail */}
         {job.output && outputUrl && (
-          <div 
+          <div
             className="w-16 h-16 rounded bg-muted shrink-0 overflow-hidden border-2 border-green-500/30 cursor-pointer"
             onClick={(e) => {
               e.stopPropagation();
@@ -264,10 +270,154 @@ const TestJobCard = memo(function TestJobCard({
 });
 
 // =============================================================================
+// Component: ComparisonCard
+// =============================================================================
+const ComparisonCard = memo(function ComparisonCard({ job }: { job: any }) {
+  const { getSignedViewUrl } = useStorage();
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [outputUrl, setOutputUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!job) {
+      setSourceUrl(null);
+      setOutputUrl(null);
+      return;
+    }
+
+    const loadUrls = async () => {
+      setLoading(true);
+      try {
+        // Fetch signed URLs for both source (Before) and output (After)
+        const [sourceResult, outputResult] = await Promise.all([
+          job.source ? getSignedViewUrl(job.source.bucket, job.source.path) : Promise.resolve({ signedUrl: null }),
+          job.output ? getSignedViewUrl(job.output.bucket, job.output.path) : Promise.resolve({ signedUrl: null })
+        ]);
+
+        if (active) {
+          setSourceUrl(sourceResult.signedUrl);
+          setOutputUrl(outputResult.signedUrl);
+        }
+      } catch (err) {
+        console.error("[ComparisonCard] Failed to load URLs:", err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadUrls();
+    return () => { active = false; };
+  }, [job?.id, job?.output?.id, getSignedViewUrl]);
+
+  if (!job) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Image className="h-4 w-4" />
+            Comparison
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="h-48 flex items-center justify-center bg-muted/30 rounded-lg border border-dashed m-4">
+          <p className="text-sm text-muted-foreground">Select a job to view comparison</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const hasOutput = !!job.output;
+  const showSlider = sourceUrl && outputUrl;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Image className="h-4 w-4" />
+            Comparison
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {job.status === "completed" ? (
+              <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-600 border-green-200">
+                COMPLETED
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-200 uppercase">
+                {job.status}
+              </Badge>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-4 pt-2">
+        {showSlider ? (
+          <div className="rounded-lg overflow-hidden border bg-black/5">
+            <BeforeAfterSlider
+              beforeImage={sourceUrl}
+              afterImage={outputUrl}
+              beforeLabel="Before"
+              afterLabel="After"
+              allowFullscreen
+            />
+          </div>
+        ) : (
+          <div className="aspect-video bg-muted/30 rounded-lg flex flex-col items-center justify-center border border-dashed">
+            {loading ? (
+              <>
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mb-2" />
+                <p className="text-xs text-muted-foreground">Loading comparison images...</p>
+              </>
+            ) : !hasOutput ? (
+              <>
+                <div className="w-1/2 space-y-2 flex flex-col items-center">
+                  <Progress value={job.progress_int ?? 0} className="h-1" />
+                  <p className="text-xs text-muted-foreground">
+                    {job.progress_message || "Waiting for output..."}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Preparing visual comparison...</p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+});
+
+// =============================================================================
 // Main Component: TestsTab
 // =============================================================================
 interface TestsTabProps {
   projectId: string;
+}
+
+// =============================================================================
+// Hook: useRecentUploads
+// =============================================================================
+function useRecentUploads(projectId: string) {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ["recent-uploads", projectId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("uploads")
+        .select("*")
+        .eq("project_id", projectId)
+        .is("deleted_at", null)
+        .in("kind", ["floor_plan", "design_ref", "panorama", "output"])
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user && !!projectId,
+  });
 }
 
 export function TestsTab({ projectId }: TestsTabProps) {
@@ -275,9 +425,10 @@ export function TestsTab({ projectId }: TestsTabProps) {
   const { toast } = useToast();
   const { getSignedUploadUrl, getSignedViewUrl } = useStorage();
   const queryClient = useQueryClient();
-  
+
   const { jobs, isLoading, refetch } = useTestJobs(projectId);
-  
+  const { data: recentUploads = [], isLoading: isLoadingRecent } = useRecentUploads(projectId);
+
   // Upload state
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [changeRequest, setChangeRequest] = useState("");
@@ -285,13 +436,13 @@ export function TestsTab({ projectId }: TestsTabProps) {
   const [selectedQuality, setSelectedQuality] = useState("2k");
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+
   // Terminal state
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  
+
   // Output preview
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Handle file selection
@@ -300,7 +451,7 @@ export function TestsTab({ projectId }: TestsTabProps) {
     if (!files || files.length === 0) return;
 
     const newImages: UploadedImage[] = [];
-    
+
     for (const file of Array.from(files)) {
       // Create local preview
       const previewUrl = URL.createObjectURL(file);
@@ -311,14 +462,30 @@ export function TestsTab({ projectId }: TestsTabProps) {
         file,
       });
     }
-    
+
     setUploadedImages(prev => [...prev, ...newImages]);
-    
+
     // Reset input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   }, []);
+
+  // Handle selecting a recent upload
+  const handleSelectRecent = useCallback(async (upload: any) => {
+    // Generate signed URL for preview
+    const { signedUrl } = await getSignedViewUrl(upload.bucket, upload.path);
+
+    setUploadedImages(prev => [
+      ...prev,
+      {
+        id: upload.id,
+        filename: upload.original_filename || "Untitled",
+        previewUrl: signedUrl || undefined,
+        isReused: true,
+      }
+    ]);
+  }, [getSignedViewUrl]);
 
   // Remove uploaded image
   const handleRemoveImage = useCallback((id: string) => {
@@ -326,99 +493,114 @@ export function TestsTab({ projectId }: TestsTabProps) {
   }, []);
 
   // Submit test jobs
+  // Submit test jobs
   const handleSubmit = useCallback(async () => {
+    if (isSubmitting) return; // Guard against duplicate submissions
+
     if (!user) {
       toast({ title: "Not authenticated", variant: "destructive" });
       return;
     }
-    
+
     if (uploadedImages.length === 0) {
       toast({ title: "Please upload at least one image", variant: "destructive" });
       return;
     }
-    
+
     if (!changeRequest.trim()) {
       toast({ title: "Please enter a change request", variant: "destructive" });
       return;
     }
 
     setIsSubmitting(true);
-    
+
     try {
+      const uploadIds: string[] = [];
+
+      // 1) Handle all uploads first
       for (const image of uploadedImages) {
-        if (!image.file) continue;
-        
-        // 1) Upload image to storage
-        setIsUploading(true);
-        
-        const { data: upload, error: uploadError } = await supabase
-          .from("uploads")
-          .insert({
-            project_id: projectId,
-            owner_id: user.id,
-            kind: "test_input",
-            bucket: "inputs",
-            path: `tests/${user.id}/${Date.now()}-${image.filename}`,
-            original_filename: image.filename,
-            mime_type: image.file.type,
-            size_bytes: image.file.size,
-          })
-          .select()
-          .single();
+        if (image.isReused) {
+          uploadIds.push(image.id);
+        } else {
+          if (!image.file) continue;
 
-        if (uploadError) throw uploadError;
+          setIsUploading(true);
+          const { data: upload, error: uploadError } = await supabase
+            .from("uploads")
+            .insert({
+              project_id: projectId,
+              owner_id: user.id,
+              kind: "output", // Using 'output' so it shows in Creations/Tests later
+              bucket: "outputs",
+              path: `${user.id}/tests/${Date.now()}-${image.filename.replace(/[^\w\.-]/g, "_")}`,
+              original_filename: image.filename,
+              mime_type: image.file.type,
+              size_bytes: image.file.size,
+            })
+            .select()
+            .single();
 
-        // Upload file to storage
-        const { error: storageError } = await supabase.storage
-          .from("inputs")
-          .upload(upload.path, image.file, {
-            contentType: image.file.type,
-          });
+          if (uploadError) throw uploadError;
 
-        if (storageError) throw storageError;
-        
-        setIsUploading(false);
+          const { error: storageError } = await supabase.storage
+            .from("outputs")
+            .upload(upload.path, image.file, {
+              contentType: image.file.type,
+            });
 
-        // 2) Create test job
-        const { data: job, error: jobError } = await supabase
-          .from("image_edit_jobs")
-          .insert({
-            project_id: projectId,
-            owner_id: user.id,
-            source_upload_id: upload.id,
-            change_description: changeRequest.trim(),
-            aspect_ratio: selectedRatio,
-            output_quality: selectedQuality,
-            status: "queued",
-          })
-          .select()
-          .single();
+          if (storageError) throw storageError;
 
-        if (jobError) throw jobError;
-
-        // 3) Start the job via edge function
-        const { error: startError } = await supabase.functions.invoke("start-image-edit-job", {
-          body: { job_id: job.id },
-        });
-
-        if (startError) {
-          console.error("[Tests] Failed to start job:", startError);
-          // Job created but not started - it will show as queued
+          uploadIds.push(upload.id);
+          setIsUploading(false);
         }
       }
 
-      toast({ 
-        title: `${uploadedImages.length} test job(s) created`,
-        description: `Ratio: ${selectedRatio}, Quality: ${selectedQuality.toUpperCase()}`
+      if (uploadIds.length === 0) {
+        throw new Error("No valid images were uploaded");
+      }
+
+      // 2) Create a single test job with all references
+      const { data: job, error: jobError } = await supabase
+        .from("image_edit_jobs")
+        .insert({
+          project_id: projectId,
+          owner_id: user.id,
+          source_upload_id: uploadIds[0], // First image acts as primary source
+          reference_upload_ids: uploadIds, // All images stored as references
+          change_description: changeRequest.trim(),
+          aspect_ratio: selectedRatio,
+          output_quality: selectedQuality,
+          status: "queued",
+        })
+        .select()
+        .single();
+
+      if (jobError) throw jobError;
+
+      // Auto-select the newly created job for immediate comparison/log view
+      setSelectedJobId(job.id);
+
+      // 3) Start the job via edge function
+      const { error: startError } = await supabase.functions.invoke("start-image-edit-job", {
+        body: { job_id: job.id },
       });
-      
+
+      if (startError) {
+        console.error("[Tests] Failed to start job:", startError);
+      }
+
+      toast({
+        title: "Test job created",
+        description: `Images: ${uploadIds.length}, Ratio: ${selectedRatio}, Quality: ${selectedQuality.toUpperCase()}`
+      });
+
       // Clear form
       setUploadedImages([]);
       setChangeRequest("");
-      
+
       // Refresh jobs list
       refetch();
-      
+
     } catch (error) {
       console.error("[Tests] Submit error:", error);
       toast({
@@ -430,7 +612,17 @@ export function TestsTab({ projectId }: TestsTabProps) {
       setIsSubmitting(false);
       setIsUploading(false);
     }
-  }, [user, uploadedImages, changeRequest, selectedRatio, selectedQuality, projectId, toast, refetch]);
+  }, [
+    user,
+    projectId,
+    uploadedImages,
+    changeRequest,
+    selectedRatio,
+    selectedQuality,
+    refetch,
+    toast,
+    isSubmitting
+  ]);
 
   return (
     <div className="space-y-6">
@@ -442,7 +634,7 @@ export function TestsTab({ projectId }: TestsTabProps) {
             <div>
               <p className="font-medium text-sm">Image Tests</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Quick image-to-image tests using Nano Banana (Gemini). Upload images, 
+                Quick image-to-image tests using Nano Banana (Gemini). Upload images,
                 describe changes, and see results. No QA gates, no pipeline steps—just run and output.
               </p>
             </div>
@@ -474,20 +666,78 @@ export function TestsTab({ projectId }: TestsTabProps) {
                 className="hidden"
                 onChange={handleFileSelect}
               />
-              
-              <Button
-                variant="outline"
-                className="w-full h-24 border-dashed"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isSubmitting}
-              >
-                <div className="flex flex-col items-center gap-2">
-                  <Upload className="h-6 w-6 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    Click to select images
-                  </span>
-                </div>
-              </Button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="h-24 border-dashed"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isSubmitting}
+                >
+                  <div className="flex flex-col items-center gap-2">
+                    <Upload className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">
+                      Select images
+                    </span>
+                  </div>
+                </Button>
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="h-24 border-dashed"
+                      disabled={isSubmitting || isLoadingRecent}
+                    >
+                      <div className="flex flex-col items-center gap-2">
+                        <Image className="h-5 w-5 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground">
+                          Reuse previous
+                        </span>
+                      </div>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80 p-0" align="start">
+                    <div className="p-2 border-b bg-muted/30">
+                      <p className="text-xs font-medium">Recent Uploads</p>
+                    </div>
+                    <ScrollArea className="h-[300px]">
+                      <div className="p-1">
+                        {recentUploads.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-muted-foreground">
+                            No previous uploads found
+                          </div>
+                        ) : (
+                          recentUploads.map((upload: any) => (
+                            <button
+                              key={upload.id}
+                              className="w-full flex items-center gap-3 p-2 rounded-md hover:bg-accent text-left transition-colors"
+                              onClick={() => handleSelectRecent(upload)}
+                            >
+                              <div className="w-10 h-10 rounded bg-muted flex-shrink-0 overflow-hidden">
+                                <RecentUploadThumbnail upload={upload} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate">
+                                  {upload.original_filename || "Untitled"}
+                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <Badge variant="outline" className="text-[10px] px-1 h-4">
+                                    {upload.kind}
+                                  </Badge>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {format(new Date(upload.created_at), "MMM d")}
+                                  </span>
+                                </div>
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </PopoverContent>
+                </Popover>
+              </div>
 
               {/* Uploaded images grid */}
               {uploadedImages.length > 0 && (
@@ -542,6 +792,7 @@ export function TestsTab({ projectId }: TestsTabProps) {
                     <SelectContent>
                       <SelectItem value="1:1"><AspectRatioSelectItemContent value="1:1" /></SelectItem>
                       <SelectItem value="16:9"><AspectRatioSelectItemContent value="16:9" /></SelectItem>
+                      <SelectItem value="21:9"><AspectRatioSelectItemContent value="21:9" /></SelectItem>
                       <SelectItem value="9:16"><AspectRatioSelectItemContent value="9:16" /></SelectItem>
                       <SelectItem value="4:3"><AspectRatioSelectItemContent value="4:3" /></SelectItem>
                     </SelectContent>
@@ -564,37 +815,41 @@ export function TestsTab({ projectId }: TestsTabProps) {
 
               {/* Submit */}
               <Button
-                className="w-full"
+                className="w-full h-11"
                 onClick={handleSubmit}
                 disabled={isSubmitting || uploadedImages.length === 0 || !changeRequest.trim()}
               >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {isUploading ? "Uploading..." : "Creating jobs..."}
+                    {isUploading ? "Uploading..." : "Running Test..."}
                   </>
                 ) : (
                   <>
-                    <Play className="h-4 w-4 mr-2" />
-                    Run Test{uploadedImages.length > 1 ? `s (${uploadedImages.length})` : ""}
+                    <Play className="h-4 w-4 mr-2 fill-current" />
+                    Run Test {uploadedImages.length > 0 ? `(${uploadedImages.length} images)` : ""}
                   </>
                 )}
               </Button>
             </CardContent>
           </Card>
 
-          {/* Terminal */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Terminal className="h-4 w-4" />
-                Job Logs
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <TestJobTerminal jobId={selectedJobId} />
-            </CardContent>
-          </Card>
+          {/* Result Comparison & Terminal Area */}
+          <div className="space-y-6">
+            <ComparisonCard job={jobs.find((j: any) => j.id === selectedJobId)} />
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Terminal className="h-4 w-4" />
+                  Job Logs
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TestJobTerminal jobId={selectedJobId} />
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         {/* Right: Jobs List */}
@@ -644,7 +899,7 @@ export function TestsTab({ projectId }: TestsTabProps) {
 
       {/* Preview Dialog */}
       {previewUrl && (
-        <div 
+        <div
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-8"
           onClick={() => setPreviewUrl(null)}
         >
@@ -663,4 +918,21 @@ export function TestsTab({ projectId }: TestsTabProps) {
       )}
     </div>
   );
+}
+
+// =============================================================================
+// Component: RecentUploadThumbnail
+// =============================================================================
+function RecentUploadThumbnail({ upload }: { upload: any }) {
+  const { getSignedViewUrl } = useStorage();
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    getSignedViewUrl(upload.bucket, upload.path).then(r => {
+      if (r.signedUrl) setUrl(r.signedUrl);
+    });
+  }, [upload.id]);
+
+  if (!url) return <div className="w-full h-full flex items-center justify-center"><Image className="h-3 w-3 text-muted-foreground" /></div>;
+  return <img src={url} alt="Thumbnail" className="w-full h-full object-cover" />;
 }

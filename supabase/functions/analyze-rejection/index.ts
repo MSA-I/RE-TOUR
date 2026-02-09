@@ -131,7 +131,8 @@ serve(async (req) => {
     // Build context for analysis
     const stepContext = getStepContext(step_number || 0, asset_type);
 
-    // NEW: Fetch similar past rejections from human feedback for context
+    // NEW: Fetch similar past rejections from human feedback for PATTERN learning only
+    // CRITICAL: We extract CATEGORIES and PATTERNS, NOT verbatim user text
     let similarRejectionsContext = "";
     if (project_id) {
       try {
@@ -142,21 +143,41 @@ serve(async (req) => {
           step_number || 5,
           { limit: 10 }
         );
-        
-        // Extract rejections only
+
+        // Extract rejection PATTERNS only (not verbatim text)
         const pastRejections = humanFeedbackMemory.recent_examples
-          .filter(ex => ex.decision === "rejected" && ex.reason_text)
+          .filter(ex => ex.decision === "rejected")
           .slice(0, 5);
-        
+
         if (pastRejections.length > 0) {
+          // Build STRUCTURED pattern summary (no verbatim user text)
+          const categoryPattern: Record<string, number> = {};
+          const spaceTypePattern: Record<string, number> = {};
+
+          pastRejections.forEach(r => {
+            const spaceType = r.output_context.space_type || "unknown";
+            spaceTypePattern[spaceType] = (spaceTypePattern[spaceType] || 0) + 1;
+
+            // Extract categories from reason text via keyword matching (not verbatim)
+            const reasonLower = (r.reason_text || "").toLowerCase();
+            if (reasonLower.includes("furniture")) categoryPattern["furniture"] = (categoryPattern["furniture"] || 0) + 1;
+            if (reasonLower.includes("wall") || reasonLower.includes("structural")) categoryPattern["structural"] = (categoryPattern["structural"] || 0) + 1;
+            if (reasonLower.includes("camera") || reasonLower.includes("angle")) categoryPattern["camera"] = (categoryPattern["camera"] || 0) + 1;
+            if (reasonLower.includes("scale") || reasonLower.includes("size")) categoryPattern["scale"] = (categoryPattern["scale"] || 0) + 1;
+            if (reasonLower.includes("seam") || reasonLower.includes("artifact")) categoryPattern["quality"] = (categoryPattern["quality"] || 0) + 1;
+          });
+
           similarRejectionsContext = `\n
-=== SIMILAR PAST REJECTIONS BY USER (learn from these patterns) ===
-${pastRejections.map((r, i) => `${i + 1}. "${r.reason_text}" [${r.output_context.space_type || "unknown space"}]`).join("\n")}
-===================================================================
-Use these patterns to understand what this user typically rejects.
-If current rejection reason matches a past pattern, apply stricter constraints.
+=== USER REJECTION PATTERNS (structured learning, NOT verbatim text) ===
+Past rejections count: ${pastRejections.length}
+Common rejection categories: ${Object.entries(categoryPattern).sort((a, b) => b[1] - a[1]).map(([cat, cnt]) => `${cat}(${cnt}x)`).join(", ")}
+Rejected space types: ${Object.entries(spaceTypePattern).sort((a, b) => b[1] - a[1]).map(([type, cnt]) => `${type}(${cnt}x)`).join(", ")}
+User strictness: ${humanFeedbackMemory.calibration_hints.user_strictness}
+=======================================================================
+Use these PATTERNS to understand what this user typically rejects.
+Focus on the CATEGORIES, not specific wording.
 `;
-          console.log(`[analyze-rejection] Injected ${pastRejections.length} similar past rejections for learning`);
+          console.log(`[analyze-rejection] Injected pattern summary from ${pastRejections.length} past rejections`);
         }
       } catch (e) {
         console.warn(`[analyze-rejection] Could not fetch past rejections: ${e}`);
@@ -358,13 +379,89 @@ interface PromptContext {
   similar_rejections_context?: string;
 }
 
+/**
+ * Extract structured rejection keywords WITHOUT showing verbatim user text
+ * This prevents prompt pollution while still understanding the issue
+ */
+function extractRejectionKeywords(rejectReason: string): {
+  categories: string[];
+  concerns: string[];
+} {
+  const reasonLower = rejectReason.toLowerCase();
+  const categories: string[] = [];
+  const concerns: string[] = [];
+
+  // Map user words to standard categories
+  if (reasonLower.includes("furniture") || reasonLower.includes("chair") || reasonLower.includes("table") || reasonLower.includes("bed")) {
+    categories.push("furniture");
+    if (reasonLower.includes("missing") || reasonLower.includes("no ") || reasonLower.includes("lack")) {
+      concerns.push("missing_furniture");
+    }
+    if (reasonLower.includes("extra") || reasonLower.includes("added") || reasonLower.includes("unwanted")) {
+      concerns.push("extra_furniture");
+    }
+    if (reasonLower.includes("scale") || reasonLower.includes("size") || reasonLower.includes("too big") || reasonLower.includes("too small")) {
+      concerns.push("furniture_scale");
+    }
+  }
+
+  if (reasonLower.includes("wall") || reasonLower.includes("door") || reasonLower.includes("window") || reasonLower.includes("structural")) {
+    categories.push("structural");
+    concerns.push("structural_change");
+  }
+
+  if (reasonLower.includes("camera") || reasonLower.includes("angle") || reasonLower.includes("direction") || reasonLower.includes("view")) {
+    categories.push("camera");
+    concerns.push("camera_mismatch");
+  }
+
+  if (reasonLower.includes("room") && (reasonLower.includes("wrong") || reasonLower.includes("different"))) {
+    categories.push("room_type");
+    concerns.push("wrong_room");
+  }
+
+  if (reasonLower.includes("floor") || reasonLower.includes("flooring") || reasonLower.includes("carpet") || reasonLower.includes("tile")) {
+    categories.push("flooring");
+    concerns.push("flooring_mismatch");
+  }
+
+  if (reasonLower.includes("seam") || reasonLower.includes("artifact") || reasonLower.includes("distort") || reasonLower.includes("blur")) {
+    categories.push("quality");
+    concerns.push("visual_quality");
+  }
+
+  if (reasonLower.includes("scale") || reasonLower.includes("proportion") || reasonLower.includes("size")) {
+    categories.push("scale");
+    concerns.push("scale_mismatch");
+  }
+
+  if (reasonLower.includes("style") || reasonLower.includes("material") || reasonLower.includes("color")) {
+    categories.push("style");
+    concerns.push("style_mismatch");
+  }
+
+  // Default if no categories matched
+  if (categories.length === 0) {
+    categories.push("general");
+    concerns.push("quality_issue");
+  }
+
+  return { categories, concerns };
+}
+
 function buildAnalysisPrompt(ctx: PromptContext): string {
+  // CRITICAL: We INTERPRET the rejection reason, not copy it verbatim
+  // Extract structured categories from the rejection for analysis
+  const rejectionKeywords = extractRejectionKeywords(ctx.reject_reason);
+
   return `You are an expert QA analyst for an AI architectural visualization pipeline.
 
 A generated image was REJECTED. Your task is to analyze WHY and produce a STRUCTURED analysis.
 
-=== REJECTION REASON (from user or AI-QA) ===
-"${ctx.reject_reason}"
+=== REJECTION SIGNAL (interpreted, not verbatim) ===
+Rejection indication detected with categories: ${rejectionKeywords.categories.join(", ")}
+Key concerns: ${rejectionKeywords.concerns.join(", ")}
+Your task: Provide structured analysis with failure_categories and corrective constraints.
 
 === STEP CONTEXT ===
 ${ctx.step_context}

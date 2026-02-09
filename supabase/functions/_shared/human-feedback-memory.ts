@@ -333,6 +333,69 @@ function extractLearnedPreferences(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Extract structured patterns from user rejection text WITHOUT showing verbatim.
+ * This prevents prompt pollution while maintaining learning signal.
+ */
+function extractRejectionPatterns(text: string): string[] {
+  if (!text) return [];
+
+  const lower = text.toLowerCase();
+  const patterns: string[] = [];
+
+  // Map user words to standard categories (same as analyze-rejection)
+  if (lower.includes("furniture") || lower.includes("chair") || lower.includes("table") || lower.includes("bed")) {
+    if (lower.includes("missing") || lower.includes("no ") || lower.includes("lack")) {
+      patterns.push("missing_furniture");
+    } else if (lower.includes("extra") || lower.includes("added") || lower.includes("unwanted")) {
+      patterns.push("extra_furniture");
+    } else if (lower.includes("scale") || lower.includes("size") || lower.includes("too big") || lower.includes("too small")) {
+      patterns.push("furniture_scale");
+    } else {
+      patterns.push("furniture_issue");
+    }
+  }
+
+  if (lower.includes("wall") || lower.includes("door") || lower.includes("window") || lower.includes("structural")) {
+    patterns.push("structural_change");
+  }
+
+  if (lower.includes("camera") || lower.includes("angle") || lower.includes("direction") || lower.includes("view")) {
+    patterns.push("camera_mismatch");
+  }
+
+  if (lower.includes("room") && (lower.includes("wrong") || lower.includes("different"))) {
+    patterns.push("wrong_room");
+  }
+
+  if (lower.includes("floor") || lower.includes("flooring") || lower.includes("carpet") || lower.includes("tile")) {
+    patterns.push("flooring_mismatch");
+  }
+
+  if (lower.includes("seam") || lower.includes("artifact") || lower.includes("distort") || lower.includes("blur")) {
+    patterns.push("quality_issue");
+  }
+
+  if (lower.includes("scale") || lower.includes("proportion")) {
+    patterns.push("scale_mismatch");
+  }
+
+  if (lower.includes("style") || lower.includes("material") || lower.includes("color")) {
+    patterns.push("style_mismatch");
+  }
+
+  if (lower.includes("clutter") || lower.includes("messy") || lower.includes("clean")) {
+    patterns.push("minimalism_preference");
+  }
+
+  if (lower.includes("light") || lower.includes("bright") || lower.includes("dark")) {
+    patterns.push("lighting_preference");
+  }
+
+  // Default if no patterns matched
+  return patterns.length > 0 ? patterns : ["general_concern"];
+}
+
+/**
  * Format the human feedback memory for injection into QA prompts.
  * Returns a formatted string ready for prompt injection.
  */
@@ -389,18 +452,24 @@ If human feedback contradicts hard rules, HARD RULES WIN.
     });
   }
 
-  // Recent examples (few-shot learning)
-  const significantExamples = memory.recent_examples.filter(e => 
+  // Recent examples (few-shot learning) - STRUCTURED ONLY, no verbatim user text
+  // CRITICAL: We show PATTERNS and CATEGORIES, not raw user words
+  const significantExamples = memory.recent_examples.filter(e =>
     e.reason_text && e.reason_text.length > 5
   ).slice(0, 5);
 
   if (significantExamples.length > 0) {
-    sections.push(`\n=== RECENT USER DECISIONS (few-shot examples) ===`);
+    sections.push(`\n=== RECENT USER DECISIONS (pattern-based, not verbatim) ===`);
     significantExamples.forEach((ex, i) => {
       const context = ex.output_context.space_type || ex.output_context.room_name || "";
       const signal = ex.user_signal ? ` [${ex.user_signal}]` : "";
       const score = ex.user_score !== null ? ` (score: ${ex.user_score}/100)` : "";
-      sections.push(`${i + 1}. ${ex.decision.toUpperCase()}${signal}${score}: "${ex.reason_text.slice(0, 100)}"${context ? ` [${context}]` : ""}`);
+
+      // Extract structured patterns from reason_text instead of showing verbatim
+      const patterns = extractRejectionPatterns(ex.reason_text);
+      const patternSummary = patterns.length > 0 ? patterns.join(", ") : "general_issue";
+
+      sections.push(`${i + 1}. ${ex.decision.toUpperCase()}${signal}${score}: [${patternSummary}]${context ? ` in ${context}` : ""}`);
     });
   }
 

@@ -13,7 +13,7 @@ import { usePromptComposer } from "@/hooks/usePromptComposer";
 import { LazyImage } from "@/components/LazyImage";
 import { AspectRatioPreview, AspectRatioSelectItemContent } from "@/components/AspectRatioPreview";
 import { ChangeSuggestionsPanel } from "@/components/ChangeSuggestionsPanel";
-import { 
+import {
   Loader2, Upload, Image, Wand2, X, Paperclip, Eye
 } from "lucide-react";
 
@@ -41,12 +41,12 @@ export const ImageEditingTab = memo(function ImageEditingTab({
   onRemoveSingleAttachment
 }: ImageEditingTabProps) {
   // Normalize attachments to always be an array
-  const attachments: ImageAttachment[] = Array.isArray(attachedFromCreations) 
-    ? attachedFromCreations 
-    : attachedFromCreations 
-    ? [attachedFromCreations] 
-    : [];
-  
+  const attachments: ImageAttachment[] = Array.isArray(attachedFromCreations)
+    ? attachedFromCreations
+    : attachedFromCreations
+      ? [attachedFromCreations]
+      : [];
+
   const hasAttachments = attachments.length > 0;
   const isBatchMode = attachments.length > 1;
   const firstAttachment = attachments[0] || null;
@@ -54,33 +54,33 @@ export const ImageEditingTab = memo(function ImageEditingTab({
   const { getSignedViewUrl } = useStorage();
   const { uploads: refImages, createUpload: createRefUpload, isLoading: refLoading } = useUploads(projectId, "design_ref");
   const { composePrompt, isComposing } = usePromptComposer();
-  
+
   // Local detached ref IDs (refs removed from THIS editing session but not globally deleted)
   const [detachedRefIds, setDetachedRefIds] = useState<string[]>([]);
-  
+
   // Filter refs to show only non-detached ones
   const visibleRefImages = refImages.filter(ref => !detachedRefIds.includes(ref.id));
-  
+
   const [changeDescription, setChangeDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
-  
+
   // Pre-settings for edit job
   const [selectedRatio, setSelectedRatio] = useState("1:1");
   const [selectedQuality, setSelectedQuality] = useState("2k");
-  
+
   // Composed prompt state
   const [composedPrompt, setComposedPrompt] = useState<string | null>(null);
-  
+
   // Style transfer selected references
   const [styleTransferRefIds, setStyleTransferRefIds] = useState<string[]>([]);
-  
+
   const refInputRef = useRef<HTMLInputElement>(null);
 
   const loadPreview = useCallback(async (uploadId: string, bucket: string, path: string) => {
     if (imagePreviews[uploadId]) return;
-    
+
     try {
       const result = await getSignedViewUrl(bucket, path);
       if (result.signedUrl) {
@@ -93,7 +93,7 @@ export const ImageEditingTab = memo(function ImageEditingTab({
 
   const handleRefUpload = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    
+
     const maxRefs = 4;
     const currentCount = visibleRefImages.length;
     const allowedCount = maxRefs - currentCount;
@@ -169,9 +169,9 @@ export const ImageEditingTab = memo(function ImageEditingTab({
     setStyleTransferRefIds(selectedRefIds);
     setChangeDescription(prompt);
     setComposedPrompt(null);
-    toast({ 
-      title: "Style transfer ready", 
-      description: `Using ${selectedRefIds.length} reference image(s)` 
+    toast({
+      title: "Style transfer ready",
+      description: `Using ${selectedRefIds.length} reference image(s)`
     });
   }, [toast]);
 
@@ -202,10 +202,10 @@ export const ImageEditingTab = memo(function ImageEditingTab({
       toast({ title: "Please attach an image from Creations to edit", variant: "destructive" });
       return;
     }
-    
+
     // Use composed prompt if available, otherwise use change description
     const finalPrompt = composedPrompt || changeDescription.trim();
-    
+
     if (!finalPrompt) {
       toast({ title: "Please describe the changes you want", variant: "destructive" });
       return;
@@ -217,7 +217,7 @@ export const ImageEditingTab = memo(function ImageEditingTab({
     try {
       const { supabase } = await import("@/integrations/supabase/client");
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (!user) throw new Error("Not authenticated");
 
       // Create edit job for each attachment (batch mode)
@@ -239,11 +239,11 @@ export const ImageEditingTab = memo(function ImageEditingTab({
         if (error) throw error;
       }
 
-      toast({ 
+      toast({
         title: isBatchMode ? `${attachments.length} edit jobs created` : "Edit job created",
         description: `Ratio: ${selectedRatio}, Quality: ${selectedQuality.toUpperCase()}`
       });
-      
+
       setChangeDescription("");
       setComposedPrompt(null);
       onClearAttachment?.();
@@ -268,7 +268,7 @@ export const ImageEditingTab = memo(function ImageEditingTab({
             <div>
               <p className="font-medium text-sm">Minor Image Edits</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Use this tab for small visual fixes, color adjustments, object removal, and lighting tweaks. 
+                Use this tab for small visual fixes, color adjustments, object removal, and lighting tweaks.
                 For full scene redesigns, use the 2D→3D Pipeline instead.
               </p>
             </div>
@@ -301,7 +301,7 @@ export const ImageEditingTab = memo(function ImageEditingTab({
                   </span>
                 </div>
               )}
-              
+
               {/* Thumbnails grid for all attachments */}
               <div className="flex flex-wrap gap-3">
                 {attachments.map((attachment, idx) => (
@@ -330,7 +330,7 @@ export const ImageEditingTab = memo(function ImageEditingTab({
                   </div>
                 ))}
               </div>
-              
+
               {/* Info and clear all */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -426,6 +426,7 @@ export const ImageEditingTab = memo(function ImageEditingTab({
                 <SelectContent className="bg-background border-border">
                   <SelectItem value="1:1"><AspectRatioSelectItemContent value="1:1" /></SelectItem>
                   <SelectItem value="16:9"><AspectRatioSelectItemContent value="16:9" /></SelectItem>
+                  <SelectItem value="21:9"><AspectRatioSelectItemContent value="21:9" /></SelectItem>
                   <SelectItem value="9:16"><AspectRatioSelectItemContent value="9:16" /></SelectItem>
                   <SelectItem value="4:3"><AspectRatioSelectItemContent value="4:3" /></SelectItem>
                   <SelectItem value="3:4"><AspectRatioSelectItemContent value="3:4" /></SelectItem>
@@ -500,38 +501,38 @@ export const ImageEditingTab = memo(function ImageEditingTab({
                 No references added. Drag & drop images here or click Add Reference.
               </p>
             ) : (
-            <div className="flex gap-3 flex-wrap">
-              {visibleRefImages.map((ref) => {
-                if (!imagePreviews[ref.id]) {
-                  loadPreview(ref.id, ref.bucket, ref.path);
-                }
-                
-                return (
-                  <div key={ref.id} className="relative group w-24 h-24 rounded-lg overflow-hidden border">
-                    <LazyImage
-                      src={imagePreviews[ref.id]}
-                      alt={ref.original_filename || "Reference"}
-                      className="w-full h-full"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="absolute top-0.5 right-0.5 h-6 w-6 bg-background/80 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground transition-opacity"
-                      onClick={() => handleDetachRef(ref.id)}
-                      title="Remove from this session (not deleted globally)"
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                    <p className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 truncate">
-                      {ref.original_filename}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              <div className="flex gap-3 flex-wrap">
+                {visibleRefImages.map((ref) => {
+                  if (!imagePreviews[ref.id]) {
+                    loadPreview(ref.id, ref.bucket, ref.path);
+                  }
+
+                  return (
+                    <div key={ref.id} className="relative group w-24 h-24 rounded-lg overflow-hidden border">
+                      <LazyImage
+                        src={imagePreviews[ref.id]}
+                        alt={ref.original_filename || "Reference"}
+                        className="w-full h-full"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-0.5 right-0.5 h-6 w-6 bg-background/80 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground transition-opacity"
+                        onClick={() => handleDetachRef(ref.id)}
+                        title="Remove from this session (not deleted globally)"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                      <p className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 truncate">
+                        {ref.original_filename}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </DropZone>
 
       {/* Submit Button */}
@@ -546,11 +547,11 @@ export const ImageEditingTab = memo(function ImageEditingTab({
           ) : (
             <Wand2 className="h-4 w-4 mr-2" />
           )}
-          {isBatchMode 
-            ? `Start Batch Edit (${attachments.length} images)` 
-            : composedPrompt 
-            ? "Start Edit (Composed)" 
-            : "Start Edit"}
+          {isBatchMode
+            ? `Start Batch Edit (${attachments.length} images)`
+            : composedPrompt
+              ? "Start Edit (Composed)"
+              : "Start Edit"}
         </Button>
       </div>
     </div>

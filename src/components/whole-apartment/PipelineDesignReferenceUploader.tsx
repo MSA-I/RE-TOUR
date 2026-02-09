@@ -9,12 +9,12 @@ import { useStorage } from "@/hooks/useStorage";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  Upload, 
-  X, 
-  Loader2, 
-  Sparkles, 
-  Lock, 
+import {
+  Upload,
+  X,
+  Loader2,
+  Sparkles,
+  Lock,
   Image as ImageIcon,
   AlertCircle,
   ChevronDown,
@@ -65,7 +65,7 @@ export const PipelineDesignReferenceUploader = memo(function PipelineDesignRefer
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(!hasStarted); // Collapsed by default after start
-  
+
   // Library picker state
   const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
   const [libraryRefs, setLibraryRefs] = useState<DesignReferenceItem[]>([]);
@@ -89,6 +89,7 @@ export const PipelineDesignReferenceUploader = memo(function PipelineDesignRefer
         const { data: uploads, error } = await supabase
           .from("uploads")
           .select("*")
+          .is("deleted_at", null)
           .in("id", existingRefIds);
 
         if (error) throw error;
@@ -118,7 +119,7 @@ export const PipelineDesignReferenceUploader = memo(function PipelineDesignRefer
   // Load library references when picker opens
   const loadLibraryReferences = useCallback(async () => {
     if (!user || !projectId) return;
-    
+
     setLoadingLibrary(true);
     try {
       // Get all design_ref uploads for this project
@@ -127,6 +128,7 @@ export const PipelineDesignReferenceUploader = memo(function PipelineDesignRefer
         .select("*")
         .eq("project_id", projectId)
         .eq("kind", "design_ref")
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -270,13 +272,13 @@ export const PipelineDesignReferenceUploader = memo(function PipelineDesignRefer
         {isStep2Active && hasReferences && (
           <div className={cn(
             "flex items-center gap-2 text-xs px-2 py-1.5 rounded-md border",
-            isStep2Running 
+            isStep2Running
               ? "bg-primary/10 border-primary/30 text-primary animate-pulse"
               : "bg-muted/50 border-border text-muted-foreground"
           )}>
             <Sparkles className="h-3.5 w-3.5" />
             <span className="font-medium">
-              {isStep2Running 
+              {isStep2Running
                 ? `Using ${references.length} design reference${references.length > 1 ? "s" : ""} for style transfer...`
                 : `Design reference${references.length > 1 ? "s" : ""} will be applied in this step`
               }
@@ -285,7 +287,7 @@ export const PipelineDesignReferenceUploader = memo(function PipelineDesignRefer
         )}
 
         {/* Header - clickable to expand/collapse after start */}
-        <div 
+        <div
           className={`flex items-center justify-between ${hasStarted ? "cursor-pointer hover:bg-muted/20 -m-3 p-3 rounded-lg transition-colors" : ""}`}
           onClick={hasStarted ? () => setIsExpanded(!isExpanded) : undefined}
         >
@@ -355,90 +357,90 @@ export const PipelineDesignReferenceUploader = memo(function PipelineDesignRefer
             <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md p-2">
               <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
               <span>
-                Reference images affect <strong>ONLY the realistic 2D styling step (Step 2)</strong>. 
+                Reference images affect <strong>ONLY the realistic 2D styling step (Step 2)</strong>.
                 They do not influence geometry, camera angles, or panoramas.
               </span>
             </div>
 
-        {/* Loading state */}
-        {isLoading && (
-          <div className="flex items-center justify-center py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        )}
-
-        {/* Reference thumbnails */}
-        {!isLoading && hasReferences && (
-          <div className="grid grid-cols-4 gap-2">
-            {references.map((ref) => (
-              <div
-                key={ref.uploadId}
-                className="relative group aspect-square rounded-md overflow-hidden border border-border"
-              >
-                <img
-                  src={ref.url}
-                  alt={ref.filename}
-                  className="w-full h-full object-cover"
-                />
-                {ref.source === "library" && (
-                  <div className="absolute top-1 left-1 p-0.5 rounded bg-primary/80">
-                    <FolderOpen className="h-2.5 w-2.5 text-white" />
-                  </div>
-                )}
-                {!isLocked && (
-                  <button
-                    onClick={() => handleRemove(ref.uploadId)}
-                    className="absolute top-1 right-1 p-0.5 rounded-full bg-destructive/80 text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1">
-                  <p className="text-[10px] text-white truncate">{ref.filename}</p>
-                </div>
+            {/* Loading state */}
+            {isLoading && (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        {/* Upload & Library buttons */}
-        {!isLocked && (
-          <div className="flex items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={handleFileSelect}
-              disabled={isUploading || references.length >= 4}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setLibraryPickerOpen(true)}
-              disabled={isUploading || references.length >= 4}
-              className="h-7 text-xs"
-            >
-              <FolderOpen className="h-3 w-3 mr-1" />
-              From Library
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading || references.length >= 4}
-              className="flex-1"
-            >
-              {isUploading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Upload className="h-4 w-4 mr-2" />
-              )}
-              {hasReferences ? "Add More" : "Upload New"}
-            </Button>
-          </div>
-        )}
+            {/* Reference thumbnails */}
+            {!isLoading && hasReferences && (
+              <div className="grid grid-cols-4 gap-2">
+                {references.map((ref) => (
+                  <div
+                    key={ref.uploadId}
+                    className="relative group aspect-square rounded-md overflow-hidden border border-border"
+                  >
+                    <img
+                      src={ref.url}
+                      alt={ref.filename}
+                      className="w-full h-full object-cover"
+                    />
+                    {ref.source === "library" && (
+                      <div className="absolute top-1 left-1 p-0.5 rounded bg-primary/80">
+                        <FolderOpen className="h-2.5 w-2.5 text-white" />
+                      </div>
+                    )}
+                    {!isLocked && (
+                      <button
+                        onClick={() => handleRemove(ref.uploadId)}
+                        className="absolute top-1 right-1 p-0.5 rounded-full bg-destructive/80 text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1">
+                      <p className="text-[10px] text-white truncate">{ref.filename}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Upload & Library buttons */}
+            {!isLocked && (
+              <div className="flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileSelect}
+                  disabled={isUploading || references.length >= 4}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setLibraryPickerOpen(true)}
+                  disabled={isUploading || references.length >= 4}
+                  className="h-7 text-xs"
+                >
+                  <FolderOpen className="h-3 w-3 mr-1" />
+                  From Library
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading || references.length >= 4}
+                  className="flex-1"
+                >
+                  {isUploading ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4 mr-2" />
+                  )}
+                  {hasReferences ? "Add More" : "Upload New"}
+                </Button>
+              </div>
+            )}
 
             {/* Locked state message */}
             {isLocked && (
@@ -484,11 +486,10 @@ export const PipelineDesignReferenceUploader = memo(function PipelineDesignRefer
                       key={ref.uploadId}
                       onClick={() => handleAddLibraryRef(ref)}
                       disabled={isAlreadySelected}
-                      className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
-                        isAlreadySelected 
-                          ? "border-muted opacity-50 cursor-not-allowed" 
+                      className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${isAlreadySelected
+                          ? "border-muted opacity-50 cursor-not-allowed"
                           : "border-border hover:border-primary"
-                      }`}
+                        }`}
                     >
                       <img
                         src={ref.url}

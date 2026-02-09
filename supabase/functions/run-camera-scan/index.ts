@@ -115,7 +115,7 @@ async function computeVersionHash(points: PanoramaPoint[]): Promise<string> {
 
 function getDirectionFromYaw(yaw: number): string {
   const normalizedYaw = ((yaw % 360) + 360) % 360;
-  
+
   if (normalizedYaw >= 337.5 || normalizedYaw < 22.5) return "right (east)";
   if (normalizedYaw >= 22.5 && normalizedYaw < 67.5) return "down-right (southeast)";
   if (normalizedYaw >= 67.5 && normalizedYaw < 112.5) return "down (south)";
@@ -144,7 +144,7 @@ function buildCameraContext(
 
   if (roomInfo) {
     const roomType = roomInfo.space_type.toLowerCase();
-    
+
     if (roomType.includes("bedroom")) {
       promptHints.push("Bedroom interior with bed, wardrobe, and personal items");
       promptHints.push("Cozy residential sleeping area");
@@ -239,7 +239,7 @@ async function detectLabelsWithVision(
     return new Map();
   }
 
-  const markerDescriptions = markers.map((m, i) => 
+  const markerDescriptions = markers.map((m, i) =>
     `Marker ${i + 1} (id: ${m.id}): Position (${Math.round(m.x_norm * 100)}% from left, ${Math.round(m.y_norm * 100)}% from top), bound to room "${m.room_name || 'Unassigned'}"`
   ).join("\n");
 
@@ -335,7 +335,7 @@ Important:
     }
 
     const textContent = result.data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    
+
     // Extract JSON from response
     const jsonMatch = textContent.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
@@ -345,12 +345,12 @@ Important:
 
     const parsed = JSON.parse(jsonMatch[0]);
     const detections = parsed.detections || [];
-    
+
     const resultMap = new Map<string, LabelDetectionResult>();
     for (const detection of detections) {
       resultMap.set(detection.marker_id, detection);
     }
-    
+
     console.log(`[run-camera-scan] Detected labels for ${resultMap.size}/${markers.length} markers`);
     return resultMap;
   } catch (error) {
@@ -378,7 +378,7 @@ async function generateMarkerCrop(
   const cropSize = 0.25; // 25% of image in each direction
   let centerX = marker.x_norm;
   let centerY = marker.y_norm;
-  
+
   if (detectedBbox) {
     // Center on the detected label's bbox center
     centerX = detectedBbox.x + detectedBbox.w / 2;
@@ -430,7 +430,7 @@ Output a high-quality cropped image.`;
 
     const result = await response.json();
     const candidate = result.candidates?.[0];
-    
+
     for (const part of candidate?.content?.parts || []) {
       if (part.inlineData?.data) {
         return {
@@ -465,18 +465,33 @@ async function fetchImageAsBase64(
     throw new Error(`Upload not found: ${uploadId}`);
   }
 
-  const { data: fileData, error: downloadError } = await serviceClient.storage
+  // Use signed URL with transformations to downscale before downloading
+  // Note: Don't specify format to preserve original (Supabase doesn't support 'webp' as output)
+  console.log(`[fetchStep2ImageAsBase64] Attempting transformed download for ${upload.path}...`);
+  let signedUrl = await serviceClient.storage
     .from(upload.bucket)
-    .download(upload.path);
+    .createSignedUrl(upload.path, 3600, {
+      transform: { width: 1600, height: 1600, quality: 60 }
+    });
 
-  if (downloadError || !fileData) {
-    throw new Error(`Failed to download image: ${downloadError?.message}`);
+  let response = signedUrl.data?.signedUrl ? await fetch(signedUrl.data.signedUrl) : null;
+
+  // Fallback to raw if transformation fails
+  if (!response || !response.ok) {
+    console.warn(`[fetchStep2ImageAsBase64] Transformation failed (HTTP ${response?.status}), falling back to raw...`);
+    signedUrl = await serviceClient.storage.from(upload.bucket).createSignedUrl(upload.path, 3600);
+    if (!signedUrl.data?.signedUrl) throw new Error("Failed to create signed URL for step 2 image");
+    response = await fetch(signedUrl.data.signedUrl);
   }
 
-  const arrayBuffer = await fileData.arrayBuffer();
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image: HTTP ${response.status}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
   const uint8Array = new Uint8Array(arrayBuffer);
   const base64 = encodeBase64(uint8Array);
-  const mimeType = upload.mime_type || "image/png";
+  const mimeType = "image/webp"; // Transformation converts to webp
 
   return {
     base64,
@@ -498,7 +513,7 @@ async function uploadCropToStorage(
   cropBase64: string
 ): Promise<{ path: string; publicUrl: string }> {
   const path = `temp/camera-planning/${pipelineId}/${scanId}/${markerId}.png`;
-  
+
   // Decode base64
   const binaryString = atob(cropBase64);
   const bytes = new Uint8Array(binaryString.length);
@@ -558,7 +573,7 @@ async function cleanupOldScanItems(
     const pathsToDelete = oldItems
       .filter((i: any) => i.crop_storage_path)
       .map((i: any) => i.crop_storage_path);
-    
+
     if (pathsToDelete.length > 0) {
       await serviceClient.storage
         .from("outputs")
@@ -641,7 +656,7 @@ Deno.serve(async (req) => {
     const stepOutputs = pipeline.step_outputs as Record<string, unknown> || {};
     const step2Output = stepOutputs["step2"] as Record<string, unknown> | undefined;
     const step2UploadId = step2Output?.output_upload_id as string | undefined;
-    
+
     if (!step2UploadId && !step2Output?.manual_approved) {
       return new Response(
         JSON.stringify({ success: false, error: "Step 2 must be approved before scanning cameras" }),
@@ -684,9 +699,9 @@ Deno.serve(async (req) => {
         .update({ camera_scan_status: "failed" })
         .eq("id", pipeline_id);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: `${unboundMarkers.length} panorama point(s) need a room assigned: ${unboundMarkers.map(m => m.label).join(", ")}` 
+        JSON.stringify({
+          success: false,
+          error: `${unboundMarkers.length} panorama point(s) need a room assigned: ${unboundMarkers.map(m => m.label).join(", ")}`
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -716,7 +731,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     const adjacencyGraph = (spatialMap?.adjacency_graph as Array<{ from: string; to: string; connection_type: string }>) || [];
-    
+
     const adjacencyMap = new Map<string, string[]>();
     for (const edge of adjacencyGraph) {
       if (!adjacencyMap.has(edge.from)) adjacencyMap.set(edge.from, []);
@@ -771,12 +786,12 @@ Deno.serve(async (req) => {
     // Fetch Step 2 image for AI analysis
     let imageData: { base64: string; mimeType: string; width: number; height: number } | null = null;
     let labelDetections = new Map<string, LabelDetectionResult>();
-    
+
     if (step2UploadId && API_NANOBANANA) {
       try {
         imageData = await fetchImageAsBase64(supabaseClient, step2UploadId);
         console.log(`[run-camera-scan] Fetched Step 2 image: ${imageData.width}x${imageData.height}`);
-        
+
         // Detect labels using AI vision (with Langfuse tracing)
         labelDetections = await detectLabelsWithVision(
           imageData.base64,
@@ -796,7 +811,7 @@ Deno.serve(async (req) => {
     for (const point of panoramaPoints) {
       const roomInfo = point.room_id ? roomsMap.get(point.room_id) || null : null;
       const labelDetection = labelDetections.get(point.id);
-      
+
       const adjacentRoomIds = point.room_id ? (adjacencyMap.get(point.room_id) || []) : [];
       const adjacentRooms = adjacentRoomIds
         .map(id => roomsMap.get(id))
@@ -815,7 +830,7 @@ Deno.serve(async (req) => {
       let cropPath: string | undefined;
       let cropWidth: number | undefined;
       let cropHeight: number | undefined;
-      
+
       if (imageData && API_NANOBANANA) {
         try {
           const cropResult = await generateMarkerCrop(
@@ -826,7 +841,7 @@ Deno.serve(async (req) => {
             imageData.height,
             labelDetection?.bbox_norm
           );
-          
+
           if (cropResult) {
             const uploaded = await uploadCropToStorage(
               supabaseClient,
@@ -897,7 +912,7 @@ Deno.serve(async (req) => {
       const { error: itemsError } = await supabaseClient
         .from("pipeline_camera_scan_items")
         .insert(scanItems);
-      
+
       if (itemsError) {
         console.error("[run-camera-scan] Error inserting scan items:", itemsError);
       }
@@ -967,10 +982,10 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error("[run-camera-scan] Unexpected error:", error);
-    
+
     // Flush Langfuse even on error
     await flushLangfuse();
-    
+
     return new Response(
       JSON.stringify({ success: false, error: error instanceof Error ? error.message : "Internal server error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
