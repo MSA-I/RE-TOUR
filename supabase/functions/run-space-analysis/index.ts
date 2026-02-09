@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encode as encodeBase64 } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 import {
   createPipelineRunTrace,
   isLangfuseEnabled,
@@ -22,6 +23,11 @@ import {
   type ParseDebugInfo,
 } from "../_shared/json-parsing.ts";
 
+// ═══════════════════════════════════════════════════════════════
+// VERSION MARKER: Increment on each deploy for verification
+// ═══════════════════════════════════════════════════════════════
+const VERSION = "2.3.2-compact-json";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -34,106 +40,238 @@ const API_NANOBANANA = Deno.env.get("API_NANOBANANA")!;
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const TEXT_ANALYSIS_MODEL = "gemini-2.5-pro";
 
+// ═══════════════════════════════════════════════════════════════
+// HELPER: Non-blocking Langfuse flush wrapper
+// Ensures Langfuse failures NEVER break the pipeline
+// ═══════════════════════════════════════════════════════════════
+async function safeFlushLangfuse(context: string): Promise<void> {
+  if (!isLangfuseEnabled()) {
+    return; // No-op if disabled
+  }
+
+  try {
+    console.log(`[safeFlushLangfuse] Flushing Langfuse events (context: ${context})...`);
+    await flushLangfuse();
+    console.log(`[safeFlushLangfuse] Flush successful (context: ${context})`);
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[safeFlushLangfuse] WARN: Langfuse flush failed (context: ${context}): ${errorMsg}`);
+    console.error(`[safeFlushLangfuse] Pipeline will continue despite Langfuse error`);
+    // DO NOT throw - Langfuse failures must not break the pipeline
+  }
+}
+
 const SPACE_ANALYSIS_PROMPT = `You are an expert architectural analyst. Analyze this 2D floor plan image and identify all distinct spaces.
 
-CRITICAL OUTPUT RULES - FOLLOW EXACTLY:
+CRITICAL: Keep JSON output COMPACT and CONCISE. For a typical apartment with 5-10 spaces, your response should be under 2000 characters.
+
+OUTPUT RULES - FOLLOW EXACTLY:
 1. Return ONLY valid JSON. No markdown. No code fences. No commentary.
 2. Use double quotes for ALL keys and string values.
-3. Do NOT include trailing commas after the last item in arrays or objects.
-4. All arrays and objects MUST be properly closed with ] and }.
-5. The response must start with { and end with } - nothing before or after.
+3. Do NOT include trailing commas.
+4. The response must start with { and end with }.
 
-CLASSIFICATION RULES:
-ROOMS - True habitable/functional spaces for human use:
-- Living Room, Kitchen, Bedroom(s), Bathroom(s), Office, Study, Dining Room, Balcony, Laundry Room
+CLASSIFICATION:
+ROOMS = habitable spaces: Living Room, Kitchen, Bedroom, Bathroom, Office, Dining Room, Balcony
+ZONES = non-habitable: Closet, Storage, Hallway, Corridor, Pantry, Utility Room
 
-ZONES - Storage areas, corridors, and non-habitable spaces (NOT counted as rooms):
-- Closet, Wardrobe, Built-in storage, Pantry, Hallway, Corridor, Shaft, Niche
-
-OUTPUT SCHEMA - Return exactly this structure:
+OUTPUT SCHEMA (MINIMAL):
 {
   "rooms": [
     {
-      "room_id": "uuid-style-or-slug-id",
+      "room_id": "kitchen-1",
       "room_name": "Kitchen",
       "room_type": "room",
-      "confidence": 0.95,
-      "center": {"x_norm": 0.5, "y_norm": 0.3},
-      "boundary": [{"x_norm": 0.0, "y_norm": 0.0}],
-      "furniture": [{"type": "sink", "count": 1, "confidence": 0.9}],
-      "notes": "Brief description"
+      "confidence": 0.95
     }
   ],
   "zones": [
     {
-      "zone_id": "uuid-style-or-slug-id",
+      "zone_id": "closet-1",
       "zone_name": "Closet",
       "zone_type": "zone",
-      "confidence": 0.9,
-      "center": {"x_norm": 0.2, "y_norm": 0.8},
-      "boundary": [{"x_norm": 0.0, "y_norm": 0.0}],
-      "notes": "Brief description"
+      "confidence": 0.9
     }
   ]
 }
 
-NAMING RULES (CRITICAL - MUST FOLLOW):
-• "room_name" MUST be human-readable Title Case (e.g., "Kitchen", "Master Bedroom", "Living Room")
-• "zone_name" MUST be human-readable Title Case (e.g., "Closet", "Hallway", "Storage")
-• NEVER use enum slugs like "living_room", "bathroom_1", "room_1"
-• NEVER use numeric-only names like "Room 1" or "Space 2"
-• If multiple rooms of same type exist, number them in the NAME: "Bedroom 1", "Bedroom 2", "Bathroom 1"
-• "room_id" and "zone_id" are internal machine IDs - use stable slugs like "bedroom-1", "kitchen-main"
+NAMING RULES:
+• room_name/zone_name: Human-readable Title Case (e.g., "Kitchen", "Master Bedroom", "Storage Closet")
+• NEVER use slugs like "living_room" or numbers like "Room 1"
+• If multiple same type: "Bedroom 1", "Bedroom 2", "Bathroom 1"
+• room_id/zone_id: machine slugs like "bedroom-1", "kitchen-main"
 
-REQUIRED FIELDS:
+REQUIRED FIELDS (ONLY THESE):
+• room_id, room_name, room_type, confidence
+• zone_id, zone_name, zone_type, confidence
 • Always include BOTH "rooms" and "zones" keys (can be empty arrays)
-• Every room MUST have: room_id, room_name, room_type, confidence
-• Every zone MUST have: zone_id, zone_name, zone_type, confidence
-• Do NOT omit any required fields
 
-CLASSIFICATION PREFERENCE:
-• If ambiguous, prefer zones over rooms
-• Only true human-use spaces go to rooms
-• Closets, storage, shafts, corridors always go to zones`;
+DO NOT INCLUDE:
+• boundary coordinates (we don't need them)
+• furniture lists (omit completely)
+• center coordinates (not needed)
+• notes or descriptions (omit completely)
+• any other fields
+
+KEEP IT SHORT: A 10-space apartment should produce ~500 characters of JSON, not 8000+.`;
 
 
 
 async function fetchImageAsBase64(supabase: any, uploadId: string): Promise<string> {
-  const { data: upload } = await supabase.from("uploads").select("*").eq("id", uploadId).single();
-  if (!upload) throw new Error(`Upload not found: ${uploadId}`);
+  console.log(`[fetchImageAsBase64] ENTRY - Upload ID: ${uploadId}`);
 
-  // Log file size for diagnostics
+  // VALIDATION 1: Check upload record exists
+  const { data: upload, error: uploadError } = await supabase.from("uploads").select("*").eq("id", uploadId).single();
+  if (uploadError || !upload) {
+    console.error(`[fetchImageAsBase64] Upload not found: ${uploadId}`, uploadError);
+    throw new Error(`Floor plan upload not found (${uploadId}). Please re-upload the floor plan.`);
+  }
+
+  // VALIDATION 2: Check required fields
+  if (!upload.bucket || !upload.path) {
+    console.error(`[fetchImageAsBase64] Upload missing bucket or path:`, upload);
+    throw new Error("Floor plan upload is corrupted. Please re-upload the floor plan.");
+  }
+
   const fileSizeMB = (upload.size_bytes / (1024 * 1024)).toFixed(2);
-  console.log(`[fetchImageAsBase64] Downloading image: ${upload.original_filename} (${fileSizeMB} MB)`);
+  console.log(`[fetchImageAsBase64] Original file: ${upload.original_filename} (${fileSizeMB} MB)`);
+  console.log(`[fetchImageAsBase64] Bucket: ${upload.bucket}, Path: ${upload.path}`);
 
-  // MEMORY SAFETY: Reject excessively large files
-  const MAX_IMAGE_SIZE_MB = 15; // Conservative limit for Edge Function memory
-  if (upload.size_bytes > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+  // VALIDATION 3: Enforce reasonable original file size
+  // For free tier without transformations, we need stricter limits
+  const MAX_ORIGINAL_SIZE_MB = 10; // Reduced from 50 for safety without transformations
+  if (upload.size_bytes > MAX_ORIGINAL_SIZE_MB * 1024 * 1024) {
+    console.error(`[fetchImageAsBase64] Original file too large: ${fileSizeMB} MB`);
     throw new Error(
-      `Image file too large: ${fileSizeMB} MB (max ${MAX_IMAGE_SIZE_MB} MB). ` +
-      `Please resize the floor plan image before uploading.`
+      `Floor plan file is too large (${fileSizeMB} MB). Maximum allowed: ${MAX_ORIGINAL_SIZE_MB} MB. ` +
+      `Please resize or compress the image before uploading. ` +
+      `Tip: Use online tools like TinyPNG or compress to 80% quality JPEG.`
     );
   }
 
-  const { data: fileData } = await supabase.storage.from(upload.bucket).download(upload.path);
-  if (!fileData) throw new Error("Failed to download image");
+  // PREPROCESSING: Try transformations first (if available), fall back to raw
+  const TRANSFORM_CONFIG = {
+    width: 1600,
+    height: 1600,
+    quality: 60,
+    // format not specified = use original format (Supabase Storage doesn't support 'webp' as output)
+  };
 
-  const arrayBuffer = await fileData.arrayBuffer();
-  const uint8Array = new Uint8Array(arrayBuffer);
+  console.log(`[fetchImageAsBase64] Attempting to use transformations...`);
+  let response: Response | null = null;
+  let usedTransformations = false;
 
-  console.log(`[fetchImageAsBase64] Converting to base64: ${uint8Array.length} bytes`);
+  // TRY PATH 1: Signed URL with transformations (requires paid plan)
+  try {
+    const signedUrlResult = await supabase.storage
+      .from(upload.bucket)
+      .createSignedUrl(upload.path, 3600, { transform: TRANSFORM_CONFIG });
 
-  // Convert to base64 using more memory-efficient approach
-  let binary = "";
-  for (let i = 0; i < uint8Array.length; i++) {
-    binary += String.fromCharCode(uint8Array[i]);
+    if (signedUrlResult.data?.signedUrl) {
+      console.log(`[fetchImageAsBase64] Transformation URL created, fetching...`);
+      const transformResponse = await fetch(signedUrlResult.data.signedUrl);
+
+      if (transformResponse.ok) {
+        // Check if we actually got a transformed image (not just the original)
+        const contentType = transformResponse.headers.get('content-type');
+        const contentLength = transformResponse.headers.get('content-length');
+
+        console.log(`[fetchImageAsBase64] Transform response: ${transformResponse.status}, type: ${contentType}, size: ${contentLength}`);
+
+        // If transformations work, the size should be significantly smaller
+        if (contentLength) {
+          const downloadedSizeMB = parseInt(contentLength) / (1024 * 1024);
+          const originalSizeMB = upload.size_bytes / (1024 * 1024);
+
+          // Heuristic: If downloaded size is < 90% of original, transformations worked
+          if (downloadedSizeMB < originalSizeMB * 0.9) {
+            console.log(`[fetchImageAsBase64] ✅ Transformations WORKED - Size: ${downloadedSizeMB.toFixed(2)} MB (reduced from ${fileSizeMB} MB)`);
+            response = transformResponse;
+            usedTransformations = true;
+          } else {
+            console.log(`[fetchImageAsBase64] ⚠️ Transformations FAILED - Size unchanged: ${downloadedSizeMB.toFixed(2)} MB`);
+            console.log(`[fetchImageAsBase64] Falling back to raw download...`);
+          }
+        }
+      }
+    }
+  } catch (transformErr) {
+    console.log(`[fetchImageAsBase64] Transformation attempt failed:`, transformErr instanceof Error ? transformErr.message : String(transformErr));
+    console.log(`[fetchImageAsBase64] This is expected on free tier - falling back to raw download`);
   }
 
-  const base64 = btoa(binary);
-  console.log(`[fetchImageAsBase64] Base64 size: ${(base64.length / (1024 * 1024)).toFixed(2)} MB`);
+  // PATH 2: Raw download (fallback for free tier)
+  if (!response) {
+    console.log(`[fetchImageAsBase64] Using raw download (no transformations available)`);
 
+    const rawUrlResult = await supabase.storage
+      .from(upload.bucket)
+      .createSignedUrl(upload.path, 3600);
+
+    if (!rawUrlResult.data?.signedUrl) {
+      console.error(`[fetchImageAsBase64] Failed to create signed URL:`, rawUrlResult.error);
+      throw new Error(
+        `Failed to prepare floor plan image. Please check the file is accessible.`
+      );
+    }
+
+    response = await fetch(rawUrlResult.data.signedUrl);
+
+    if (!response.ok) {
+      console.error(`[fetchImageAsBase64] Failed to fetch image: HTTP ${response.status}`);
+      throw new Error(`Failed to download floor plan image (HTTP ${response.status}).`);
+    }
+
+    // CRITICAL: Validate raw download size
+    const contentLength = response.headers.get('content-length');
+    if (contentLength) {
+      const downloadedSizeMB = parseInt(contentLength) / (1024 * 1024);
+      console.log(`[fetchImageAsBase64] Raw download size: ${downloadedSizeMB.toFixed(2)} MB`);
+
+      // Stricter limit for raw downloads
+      const MAX_DOWNLOAD_SIZE_MB = 10;
+      if (downloadedSizeMB > MAX_DOWNLOAD_SIZE_MB) {
+        console.error(`[fetchImageAsBase64] Downloaded image too large: ${downloadedSizeMB.toFixed(2)} MB`);
+        throw new Error(
+          `Floor plan image is too large (${downloadedSizeMB.toFixed(2)} MB, max ${MAX_DOWNLOAD_SIZE_MB} MB). ` +
+          `Please compress the image before uploading. Tip: Export as JPEG with 70-80% quality.`
+        );
+      }
+    }
+  }
+
+  // VALIDATION: Check we have a valid response
+  if (!response || !response.ok) {
+    console.error(`[fetchImageAsBase64] No valid response obtained`);
+    throw new Error("Failed to download floor plan image. Please try again.");
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const uint8Array = new Uint8Array(arrayBuffer);
+
+  // VALIDATION: Check downloaded data is non-empty
+  if (uint8Array.length === 0) {
+    console.error(`[fetchImageAsBase64] Downloaded image is empty (0 bytes)`);
+    throw new Error("Downloaded floor plan image is empty. Please re-upload the floor plan.");
+  }
+
+  const downloadedSizeMB = (uint8Array.length / (1024 * 1024)).toFixed(2);
+  console.log(`[fetchImageAsBase64] Converting ${uint8Array.length} bytes (${downloadedSizeMB} MB) to base64...`);
+
+  const base64 = encodeBase64(uint8Array);
+  const base64SizeMB = (base64.length / (1024 * 1024)).toFixed(2);
+  console.log(`[fetchImageAsBase64] Base64 size: ${base64SizeMB} MB (${usedTransformations ? 'transformed' : 'raw'})`);
+
+  // VALIDATION: Check base64 format
+  if (base64.length < 100 || !/^[A-Za-z0-9+/]/.test(base64)) {
+    console.error(`[fetchImageAsBase64] Invalid base64 format detected`);
+    throw new Error("Floor plan image encoding is invalid. Please try re-uploading the image.");
+  }
+
+  console.log(`[fetchImageAsBase64] ✅ SUCCESS - Method: ${usedTransformations ? 'TRANSFORMED' : 'RAW'}`);
   return base64;
 }
+
 
 async function emitEvent(supabase: any, pipelineId: string, ownerId: string, stepNumber: number, type: string, message: string, progress: number) {
   await supabase.from("floorplan_pipeline_events").insert({
@@ -146,30 +284,33 @@ async function emitEvent(supabase: any, pipelineId: string, ownerId: string, ste
 // ═══════════════════════════════════════════════════════════════════════════
 const STYLE_ANALYSIS_PROMPT = `You are an expert interior designer. Analyze the provided design reference image(s) and extract a STRUCTURED STYLE PROFILE.
 
-Extract:
-1. OVERALL DESIGN STYLE (primary style, secondary influences, mood keywords)
-2. COLOR PALETTE (primary, secondary, accent colors with hex codes)
-3. MATERIAL LANGUAGE (flooring, walls, wood tones, metal finishes, fabrics, stone)
-4. LIGHTING MOOD (temperature, intensity, mood)
-5. TEXTURE LEVEL (density, key elements)
-6. STYLE RULES (do/don't guidelines)
+IMPORTANT: Keep output COMPACT. Limit arrays to 3-5 items max. Total response should be under 1500 characters.
 
-OUTPUT FORMAT - Return ONLY this JSON object:
+Extract:
+1. OVERALL DESIGN STYLE (primary style, 1-2 secondary influences, 3-5 mood keywords)
+2. COLOR PALETTE (primary, 2-3 secondary, 2-3 accent colors with hex codes)
+3. MATERIAL LANGUAGE (key materials only: flooring, walls, wood_tone, metal_finish, fabrics, stone)
+4. LIGHTING MOOD (temperature, intensity, mood)
+5. TEXTURE LEVEL (density, 2-3 key elements)
+6. STYLE RULES (3-5 do's, 3-5 avoid's)
+
+OUTPUT FORMAT - Return ONLY this JSON object (NO markdown, NO code fences):
 {
-  "design_style": { "primary": "...", "secondary": [...], "mood_keywords": [...] },
-  "color_palette": { "primary": "#...", "secondary": [...], "accent": [...], "temperature": "..." },
-  "materials": { "flooring": "...", "walls": "...", "wood_tone": "...", "metal_finish": "...", "fabrics": "...", "stone": "..." },
-  "lighting": { "temperature": "...", "intensity": "...", "mood": "..." },
-  "texture_level": { "density": "...", "key_elements": [...] },
-  "style_rules": { "do": [...], "avoid": [...] },
-  "summary_prompt": "A concise 2-3 sentence style description."
+  "design_style": { "primary": "Modern Minimalist", "secondary": ["Scandinavian"], "mood_keywords": ["serene", "airy", "refined"] },
+  "color_palette": { "primary": "#F5F5F5", "secondary": ["#E8E8E8", "#D0D0D0"], "accent": ["#4A4A4A"], "temperature": "cool" },
+  "materials": { "flooring": "light oak", "walls": "white plaster", "wood_tone": "natural", "metal_finish": "brushed steel", "fabrics": "linen", "stone": "marble" },
+  "lighting": { "temperature": "warm white", "intensity": "soft", "mood": "ambient" },
+  "texture_level": { "density": "minimal", "key_elements": ["smooth surfaces", "subtle grain"] },
+  "style_rules": { "do": ["Use neutral palette", "Keep clean lines", "Add natural light"], "avoid": ["Bold patterns", "Dark colors", "Clutter"] },
+  "summary_prompt": "Modern minimalist aesthetic with Scandinavian influences. Emphasizes clean lines, natural materials, and a serene neutral palette."
 }
 
 STRICT RULES:
 - Output ONLY the JSON object above, nothing else
 - Do NOT wrap in markdown code blocks (\`\`\`)
 - Do NOT include any explanatory text before or after the JSON
-- The response must start with { and end with }`;
+- The response must start with { and end with }
+- Keep arrays to 2-5 items MAXIMUM - be concise and specific`;
 
 interface StyleAnalysisResult {
   analyzed_at: string;
@@ -189,24 +330,140 @@ async function runStyleAnalysis(
 ): Promise<StyleAnalysisResult | null> {
   // Load reference images as base64
   const referenceImages: { id: string; base64: string }[] = [];
-  
+
   for (const refId of designRefIds) {
     try {
-      const { data: upload } = await supabase.from("uploads").select("bucket, path").eq("id", refId).eq("owner_id", ownerId).single();
-      if (upload) {
-        const { data: fileData } = await supabase.storage.from(upload.bucket).download(upload.path);
-        if (fileData) {
-          const arrayBuffer = await fileData.arrayBuffer();
-          const uint8Array = new Uint8Array(arrayBuffer);
-          let binary = "";
-          for (let i = 0; i < uint8Array.length; i++) {
-            binary += String.fromCharCode(uint8Array[i]);
+      console.log(`[runStyleAnalysis] Loading design reference: ${refId}`);
+
+      const { data: upload, error: uploadError } = await supabase
+        .from("uploads")
+        .select("bucket, path, original_filename, size_bytes")
+        .eq("id", refId)
+        .eq("owner_id", ownerId)
+        .single();
+
+      if (uploadError || !upload) {
+        console.error(`[runStyleAnalysis] Design reference not found: ${refId}`, uploadError);
+        throw new Error(`Design reference ${refId} not found or inaccessible`);
+      }
+
+      if (!upload.bucket || !upload.path) {
+        console.error(`[runStyleAnalysis] Design reference missing bucket or path:`, upload);
+        throw new Error(`Design reference ${refId} is corrupted`);
+      }
+
+      const fileSizeMB = (upload.size_bytes / (1024 * 1024)).toFixed(2);
+      console.log(`[runStyleAnalysis] Original file: ${upload.original_filename} (${fileSizeMB} MB)`);
+
+      // Enforce reasonable original file size
+      const MAX_ORIGINAL_SIZE_MB = 10; // Reduced for free tier
+      if (upload.size_bytes > MAX_ORIGINAL_SIZE_MB * 1024 * 1024) {
+        throw new Error(
+          `Design reference ${upload.original_filename} is too large (${fileSizeMB} MB, max ${MAX_ORIGINAL_SIZE_MB} MB). ` +
+          `Please compress before uploading.`
+        );
+      }
+
+      // Try transformations first, fall back to raw
+      const TRANSFORM_CONFIG = {
+        width: 1600,
+        height: 1600,
+        quality: 60,
+        // format not specified = use original format (Supabase Storage doesn't support 'webp' as output)
+      };
+
+      console.log(`[runStyleAnalysis] Attempting transformations for ${upload.original_filename}...`);
+      let imageResponse: Response | null = null;
+      let usedTransformations = false;
+
+      // TRY PATH 1: Transformations
+      try {
+        const { data: signedUrlData, error: urlError } = await supabase.storage
+          .from(upload.bucket)
+          .createSignedUrl(upload.path, 3600, { transform: TRANSFORM_CONFIG });
+
+        if (!urlError && signedUrlData?.signedUrl) {
+          const transformResponse = await fetch(signedUrlData.signedUrl);
+
+          if (transformResponse.ok) {
+            const contentLength = transformResponse.headers.get('content-length');
+            if (contentLength) {
+              const downloadedSizeMB = parseInt(contentLength) / (1024 * 1024);
+              const originalSizeMB = upload.size_bytes / (1024 * 1024);
+
+              if (downloadedSizeMB < originalSizeMB * 0.9) {
+                console.log(`[runStyleAnalysis] ✅ Transformations worked: ${downloadedSizeMB.toFixed(2)} MB`);
+                imageResponse = transformResponse;
+                usedTransformations = true;
+              } else {
+                console.log(`[runStyleAnalysis] Transformations didn't reduce size, using raw`);
+              }
+            }
           }
-          referenceImages.push({ id: refId, base64: btoa(binary) });
+        }
+      } catch (transformErr) {
+        console.log(`[runStyleAnalysis] Transformation attempt failed (expected on free tier)`);
+      }
+
+      // PATH 2: Raw download
+      if (!imageResponse) {
+        console.log(`[runStyleAnalysis] Using raw download for ${upload.original_filename}`);
+        const rawUrlResult = await supabase.storage
+          .from(upload.bucket)
+          .createSignedUrl(upload.path, 3600);
+
+        if (!rawUrlResult.data?.signedUrl) {
+          throw new Error(`Failed to create signed URL for ${upload.original_filename}`);
+        }
+
+        imageResponse = await fetch(rawUrlResult.data.signedUrl);
+
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to download ${upload.original_filename} (HTTP ${imageResponse.status})`);
+        }
+
+        // Validate raw download size
+        const contentLength = imageResponse.headers.get('content-length');
+        if (contentLength) {
+          const downloadedSizeMB = parseInt(contentLength) / (1024 * 1024);
+          console.log(`[runStyleAnalysis] Raw download size: ${downloadedSizeMB.toFixed(2)} MB`);
+
+          const MAX_DOWNLOAD_SIZE_MB = 10;
+          if (downloadedSizeMB > MAX_DOWNLOAD_SIZE_MB) {
+            throw new Error(
+              `Design reference ${upload.original_filename} is too large (${downloadedSizeMB.toFixed(2)} MB). ` +
+              `Please compress before uploading.`
+            );
+          }
         }
       }
+
+      const arrayBuffer = await imageResponse.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      if (uint8Array.length === 0) {
+        throw new Error(`Design reference ${upload.original_filename} is empty`);
+      }
+
+      console.log(`[runStyleAnalysis] Converting to base64: ${uint8Array.length} bytes`);
+
+      let binary = "";
+      for (let i = 0; i < uint8Array.length; i++) {
+        binary += String.fromCharCode(uint8Array[i]);
+      }
+      const base64 = btoa(binary);
+
+      if (base64.length < 100 || !/^[A-Za-z0-9+/]/.test(base64)) {
+        throw new Error(`Design reference ${upload.original_filename} encoding is invalid`);
+      }
+
+      referenceImages.push({ id: refId, base64 });
+      console.log(`[runStyleAnalysis] ✅ Loaded ${upload.original_filename} (${usedTransformations ? 'transformed' : 'raw'})`);
     } catch (err) {
-      console.error(`[runStyleAnalysis] Failed to load reference ${refId}:`, err);
+      // Log error but continue loading other references
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[runStyleAnalysis] Failed to load reference ${refId}:`, errorMsg);
+      // Note: We continue instead of throwing to allow partial success
     }
   }
 
@@ -221,7 +478,7 @@ async function runStyleAnalysis(
   let promptTemplate = STYLE_ANALYSIS_PROMPT;
   let promptVersion: string | undefined;
   let promptSource: "langfuse_prompt_management" | "code" = "code";
-  
+
   if (isLangfuseEnabled()) {
     console.log(`[STEP 0.1] Fetching prompt: ${PROMPT_NAMES.DESIGN_REFERENCE_ANALYSIS} (label: production)`);
     const langfusePrompt = await fetchPrompt(PROMPT_NAMES.DESIGN_REFERENCE_ANALYSIS, "production");
@@ -296,7 +553,7 @@ async function runStyleAnalysis(
 
       // Use robust JSON parsing
       const parseResult = parseJsonFromLLM<Record<string, unknown>>(responseContent, TEXT_ANALYSIS_MODEL);
-      
+
       if (!parseResult.success) {
         console.error("[runStyleAnalysis] JSON parse failed:", parseResult.error);
         console.error("[runStyleAnalysis] Raw response preview:", parseResult.rawResponse);
@@ -306,7 +563,7 @@ async function runStyleAnalysis(
         (error as any).extractedJson = parseResult.extractedJson;
         throw error;
       }
-      
+
       return parseResult.data!;
     }
   );
@@ -392,7 +649,11 @@ serve(async (req) => {
   }
 
   const actionId = crypto.randomUUID();
+  console.log(`[SPACE_ANALYSIS] VERSION: ${VERSION}`);
   console.log(`[SPACE_ANALYSIS] Action ${actionId} started`);
+
+  // Parse request body once and store pipeline_id for use in catch block
+  let pipeline_id: string | undefined;
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -408,7 +669,8 @@ serve(async (req) => {
     }
     const userId = claimsData.user.id;
 
-    const { pipeline_id } = await req.json();
+    const body = await req.json();
+    pipeline_id = body.pipeline_id;
     if (!pipeline_id) {
       return new Response(JSON.stringify({ error: "Missing pipeline_id" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -423,11 +685,11 @@ serve(async (req) => {
     // ═══════════════════════════════════════════════════════════════════════════
     const currentPhase = pipeline.whole_apartment_phase ?? "upload";
     console.log(`[SPACE_ANALYSIS] Pipeline ${pipeline_id} current phase: ${currentPhase}`);
-    
+
     if (!ALLOWED_PHASES.includes(currentPhase)) {
       console.error(`[SPACE_ANALYSIS] Phase mismatch: expected one of [${ALLOWED_PHASES.join(", ")}], got "${currentPhase}"`);
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           error: `Phase mismatch: run-space-analysis handles Space Analysis (Step 0), but pipeline is at phase "${currentPhase}"`,
           hint: "Check frontend routing: this function should only be called for upload or space_analysis_* phases",
           expected_phases: ALLOWED_PHASES,
@@ -450,36 +712,79 @@ serve(async (req) => {
     await emitEvent(serviceClient, pipeline_id, userId, 0, "info", "[SPACE_ANALYSIS] Starting space analysis...", 5);
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // LANGFUSE: Create or ensure trace for this pipeline run
+    // LANGFUSE: Create or ensure trace for this pipeline run (non-blocking)
     // ═══════════════════════════════════════════════════════════════════════════
     let traceId = pipeline_id; // Use pipeline_id as trace_id for easy linking
+
+    // TEMPORARY DIAGNOSTIC: Test Langfuse connectivity (non-blocking)
     if (isLangfuseEnabled()) {
-      console.log(`[LANGFUSE] Creating/ensuring trace for pipeline: ${pipeline_id}`);
-      const traceResult = await createPipelineRunTrace(
-        pipeline_id,
-        pipeline.project_id,
-        userId,
-        { action_id: actionId }
-      );
-      traceId = traceResult.traceId;
-      console.log(`[LANGFUSE] Trace ID: ${traceId}`);
+      console.log("[LANGFUSE_DIAGNOSTIC] Step 0 starting - testing Langfuse connectivity");
+      try {
+        const { testLangfuseConnectivity } = await import("../_shared/langfuse-client.ts");
+        const connectivityTest = await testLangfuseConnectivity();
+        console.log("[LANGFUSE_DIAGNOSTIC] Connectivity test result:", connectivityTest);
+      } catch (testErr) {
+        console.warn("[LANGFUSE_DIAGNOSTIC] Connectivity test failed:", testErr);
+      }
     }
 
+    if (isLangfuseEnabled()) {
+      try {
+        console.log(`[LANGFUSE] Creating/ensuring trace for pipeline: ${pipeline_id}`);
+        // TEMPORARY DIAGNOSTIC: Log before trace creation
+        console.log("[LANGFUSE_DIAGNOSTIC] About to call createPipelineRunTrace");
+
+        const traceResult = await createPipelineRunTrace(
+          pipeline_id,
+          pipeline.project_id,
+          userId,
+          { action_id: actionId }
+        );
+        traceId = traceResult.traceId;
+        console.log(`[LANGFUSE] Trace ID: ${traceId}`);
+
+        // TEMPORARY DIAGNOSTIC: Log after trace creation
+        console.log("[LANGFUSE_DIAGNOSTIC] createPipelineRunTrace returned:", {
+          success: traceResult.success,
+          traceId: traceResult.traceId
+        });
+      } catch (langfuseErr) {
+        const errMsg = langfuseErr instanceof Error ? langfuseErr.message : String(langfuseErr);
+        console.error(`[LANGFUSE] WARN: Failed to create trace: ${errMsg}`);
+        console.error(`[LANGFUSE] Pipeline will continue without Langfuse tracing`);
+        // TEMPORARY DIAGNOSTIC: Log full error
+        console.error("[LANGFUSE_DIAGNOSTIC] Trace creation error:", langfuseErr);
+        // Continue execution - Langfuse is observability, not critical path
+      }
+    } else {
+      console.log("[LANGFUSE_DIAGNOSTIC] Langfuse disabled - skipping trace creation");
+    }
+
+    // VALIDATION: Ensure pipeline state is clean (no stale outputs from previous failed runs)
+    const existingSpaceAnalysis = (pipeline.step_outputs as any)?.space_analysis;
+    if (existingSpaceAnalysis && currentPhase === "space_analysis_pending") {
+      console.warn(`[run-space-analysis] WARNING: Pipeline ${pipeline_id} has existing space_analysis but is in pending phase`);
+      console.warn(`[run-space-analysis] This may indicate a previous failed run. Clearing stale data.`);
+      // Note: We'll overwrite this when we update step_outputs later
+    }
+
+    // CRITICAL: Fetch and validate floor plan image
+    console.log(`[run-space-analysis] Fetching floor plan image for upload: ${pipeline.floor_plan_upload_id}`);
     const imageBase64 = await fetchImageAsBase64(serviceClient, pipeline.floor_plan_upload_id);
 
-    // VALIDATION: Ensure base64 is valid
+    // VALIDATION: Image is now validated inside fetchImageAsBase64, but double-check here
     if (!imageBase64 || imageBase64.length < 100) {
-      console.error("[run-space-analysis] Invalid base64 image data");
-      throw new Error("Floor plan image could not be loaded or is corrupted. Please re-upload the image.");
+      console.error("[run-space-analysis] Invalid base64 image data returned from fetchImageAsBase64");
+      throw new Error("Floor plan image validation failed. Please try re-uploading the image.");
     }
 
+    console.log(`[run-space-analysis] Floor plan image loaded and validated successfully`);
     await emitEvent(serviceClient, pipeline_id, userId, 0, "info", "Analyzing floor plan structure...", 20);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // MEMORY OPTIMIZATION: Flush Langfuse early before heavy operations
     // ═══════════════════════════════════════════════════════════════════════════
-    console.log("[run-space-analysis] Flushing Langfuse before Gemini call to free memory...");
-    await flushLangfuse();
+    await safeFlushLangfuse("before-space-analysis");
 
     // ═══════════════════════════════════════════════════════════════════════════
     // STEP 0.2: Space Analysis (Always runs)
@@ -503,10 +808,10 @@ serve(async (req) => {
       }
     }
 
-    // MEMORY OPTIMIZATION: Conservative token limit to prevent memory exhaustion
-    // 8K is more conservative and matches the original limit before issues
-    // Style analysis (Step 0.1) uses only 2K tokens successfully
-    const spaceRequestParams = { temperature: 0.3, maxOutputTokens: 8192, responseMimeType: "application/json" };
+    // TOKEN LIMIT: Allow sufficient tokens for complex floor plans
+    // Gemini 2.5 Pro supports up to 32K output tokens
+    // Using 16K as a good balance between completeness and performance
+    const spaceRequestParams = { temperature: 0.3, maxOutputTokens: 16384, responseMimeType: "application/json" };
     const geminiUrl = `${GEMINI_API_BASE}/${TEXT_ANALYSIS_MODEL}:generateContent?key=${API_NANOBANANA}`;
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -639,10 +944,10 @@ serve(async (req) => {
 
         // Use robust JSON parsing with repair logic
         const parseResult = parseJsonFromLLM<{ rooms: unknown[]; zones: unknown[]; overall_notes?: string }>(
-          content, 
+          content,
           TEXT_ANALYSIS_MODEL
         );
-        
+
         if (!parseResult.success) {
           const wasTruncated = finishReason === "MAX_TOKENS";
           console.error("[run-space-analysis] JSON parse failed:", parseResult.error);
@@ -687,13 +992,13 @@ serve(async (req) => {
           (error as any).wasTruncated = wasTruncated;
           throw error;
         }
-        
+
         // Validate the schema has required fields
         const validation = validateSpaceAnalysisSchema(parseResult.data);
         if (!validation.valid) {
           console.warn("[run-space-analysis] Schema validation warnings:", validation.errors);
         }
-        
+
         return parseResult.data!;
       }
     );
@@ -703,8 +1008,7 @@ serve(async (req) => {
     }
 
     // MEMORY OPTIMIZATION: Flush Langfuse immediately after generation to free memory
-    console.log("[run-space-analysis] Generation complete, flushing Langfuse events...");
-    await flushLangfuse();
+    await safeFlushLangfuse("after-space-analysis-generation");
 
     const analysisData = spaceAnalysisResult.data;
     const rawRooms = analysisData.rooms || [];
@@ -727,11 +1031,11 @@ serve(async (req) => {
     function normalizeSpace(space: SpaceData, index: number, type: "room" | "zone"): SpaceData {
       // Get the human-readable name from room_name OR inferred_usage (backward compat)
       const rawName = space.room_name || space.inferred_usage || "";
-      
+
       // Validate: reject numeric-only or generic names
       const isGenericName = /^(room|space|zone|area)[\s_-]?\d*$/i.test(rawName.trim());
       const isNumericOnly = /^\d+$/.test(rawName.trim());
-      
+
       let roomName = rawName;
       if (!roomName || isGenericName || isNumericOnly) {
         // Fallback: construct descriptive name from context if available
@@ -766,21 +1070,42 @@ serve(async (req) => {
     const allSpaces = [...rooms, ...zones];
     const invalidSpaces = allSpaces.filter((s: SpaceData) => !s.room_name || s.room_name.trim().length < 2);
     if (invalidSpaces.length > 0) {
-      console.error(`[run-space-analysis] VALIDATION WARNING: ${invalidSpaces.length} spaces have invalid room_name:`, 
+      console.error(`[run-space-analysis] VALIDATION WARNING: ${invalidSpaces.length} spaces have invalid room_name:`,
         invalidSpaces.map((s: SpaceData) => ({ id: s.space_id, name: s.room_name })));
     }
 
     console.log(`[run-space-analysis] Detected ${rooms.length} rooms and ${zones.length} zones`);
     console.log(`[run-space-analysis] Room names: ${rooms.map((r: SpaceData) => r.room_name).join(", ")}`);
 
+    // VALIDATION: Ensure we have valid output data before persisting
+    if (rooms.length === 0 && zones.length === 0) {
+      console.error(`[run-space-analysis] CRITICAL: No rooms or zones detected`);
+      throw new Error(
+        "Space analysis returned no rooms or zones. This indicates the model could not interpret the floor plan. " +
+        "Please ensure the uploaded image is a clear floor plan with visible room boundaries."
+      );
+    }
+
+    // STATE FLOW: Build outputs atomically (no partial updates)
     const existingOutputs = (pipeline.step_outputs || {}) as Record<string, unknown>;
+
+    // CRITICAL: Overwrite space_analysis completely (no merge) to prevent stale data
+    const spaceAnalysisOutput = {
+      rooms_count: rooms.length,
+      zones_count: zones.length,
+      rooms,
+      zones,
+      overall_notes: analysisData.overall_notes,
+      analyzed_at: new Date().toISOString(),
+      pipeline_id: pipeline_id, // Include pipeline_id for verification
+    };
+
     let updatedOutputs: Record<string, unknown> = {
       ...existingOutputs,
-      space_analysis: {
-        rooms_count: rooms.length, zones_count: zones.length, rooms, zones,
-        overall_notes: analysisData.overall_notes, analyzed_at: new Date().toISOString(),
-      },
+      space_analysis: spaceAnalysisOutput,
     };
+
+    console.log(`[run-space-analysis] Prepared space_analysis output for persistence (pipeline: ${pipeline_id})`);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // STEP 0.1: STYLE ANALYSIS (Conditional - only if design references attached)
@@ -817,7 +1142,25 @@ serve(async (req) => {
       console.log(`[STEP 0.1] No design references attached, skipping design reference analysis`);
     }
 
-    await serviceClient.from("floorplan_pipelines").update({ whole_apartment_phase: "space_analysis_complete", step_outputs: updatedOutputs }).eq("id", pipeline_id);
+    // STATE FLOW: Atomic update with validation
+    console.log(`[run-space-analysis] Persisting outputs to database (pipeline: ${pipeline_id})...`);
+
+    const { error: updateError } = await serviceClient
+      .from("floorplan_pipelines")
+      .update({
+        whole_apartment_phase: "space_analysis_complete",
+        step_outputs: updatedOutputs,
+        last_error: null, // Clear any previous errors
+      })
+      .eq("id", pipeline_id)
+      .eq("owner_id", userId); // Extra validation: ensure owner matches
+
+    if (updateError) {
+      console.error(`[run-space-analysis] CRITICAL: Failed to persist outputs:`, updateError);
+      throw new Error(`Failed to save space analysis results: ${updateError.message}`);
+    }
+
+    console.log(`[run-space-analysis] Outputs persisted successfully (pipeline: ${pipeline_id})`);
     await emitEvent(serviceClient, pipeline_id, userId, 0, "success", `[SPACE_ANALYSIS] Complete: ${rooms.length} rooms + ${zones.length} zones`, 100);
 
     // Emit action complete event
@@ -832,23 +1175,23 @@ serve(async (req) => {
     }), 100);
 
     console.log(`[SPACE_ANALYSIS] Action ${actionId} completed successfully`);
-    
-    // CRITICAL: Flush Langfuse events before returning
-    await flushLangfuse();
-    
+
+    // CRITICAL: Flush Langfuse events before returning (non-blocking)
+    await safeFlushLangfuse("before-success-response");
+
     return new Response(JSON.stringify({ success: true, rooms_count: rooms.length, zones_count: zones.length, rooms, zones, action_id: actionId }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[SPACE_ANALYSIS] Error: ${message}`);
-    
+
     // Check if this is a parse error - return structured response, NOT 500
     const isParseError = (error as any)?.isParseError === true;
     const errorCode = (error as any)?.errorCode || "UNKNOWN_ERROR";
     const debugInfo = (error as any)?.debugInfo as ParseDebugInfo | undefined;
-    
-    // Flush Langfuse even on error
-    await flushLangfuse();
-    
+
+    // Flush Langfuse even on error (non-blocking)
+    await safeFlushLangfuse("error-handler");
+
     if (isParseError) {
       // Return structured error with debug info - HTTP 200 with ok:false
       // This prevents the frontend from showing a blank screen
@@ -868,51 +1211,44 @@ serve(async (req) => {
           repair_attempted: debugInfo.repair_attempted,
         } : undefined,
       };
-      
+
       // Store debug info in pipeline for later analysis
       try {
-        const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const authHeader = req.headers.get("Authorization");
-        const token = authHeader?.replace("Bearer ", "") || "";
-        const { data: claimsData } = await serviceClient.auth.getUser(token);
-        
-        if (claimsData?.user) {
-          const { pipeline_id } = await req.json().catch(() => ({}));
-          if (pipeline_id) {
-            await serviceClient.from("floorplan_pipelines").update({
-              last_error: message,
-              step_outputs: {
-                space_analysis_error: {
-                  error_code: errorCode,
-                  error_message: message,
-                  debug_info: debugInfo,
-                  failed_at: new Date().toISOString(),
-                }
+        if (pipeline_id) {
+          const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+          await serviceClient.from("floorplan_pipelines").update({
+            last_error: message,
+            step_outputs: {
+              space_analysis_error: {
+                error_code: errorCode,
+                error_message: message,
+                debug_info: debugInfo,
+                failed_at: new Date().toISOString(),
               }
-            }).eq("id", pipeline_id);
-          }
+            }
+          }).eq("id", pipeline_id);
         }
       } catch (dbErr) {
         console.error("[SPACE_ANALYSIS] Failed to store debug info:", dbErr);
       }
-      
-      return new Response(JSON.stringify(responseBody), { 
+
+      return new Response(JSON.stringify(responseBody), {
         status: 200, // NOT 500 - let frontend handle gracefully
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-    
+
     // For non-parse errors, still return structured error
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       ok: false,
       success: false,
       error_code: errorCode,
       error: message,
       user_message: "Space analysis failed. Please retry.",
       retry_available: true,
-    }), { 
-      status: 500, 
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   }
 });

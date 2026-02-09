@@ -130,7 +130,54 @@ function getConfig(): LangfuseConfig {
 
 export function isLangfuseEnabled(): boolean {
   const config = getConfig();
-  return config.enabled && !!config.secretKey && !!config.publicKey;
+  const result = config.enabled && !!config.secretKey && !!config.publicKey;
+
+  // TEMPORARY DIAGNOSTIC: Log Langfuse configuration status (safe - no secrets)
+  console.log("[LANGFUSE_DIAGNOSTIC] Configuration check:", {
+    enabled: config.enabled,
+    secretKeyPresent: !!config.secretKey,
+    publicKeyPresent: !!config.publicKey,
+    baseUrl: config.baseUrl,
+    finalResult: result
+  });
+
+  return result;
+}
+
+/**
+ * TEMPORARY DIAGNOSTIC: Test network connectivity to Langfuse
+ * Non-blocking health check that logs result
+ */
+export async function testLangfuseConnectivity(): Promise<{ reachable: boolean; statusCode?: number; error?: string }> {
+  const config = getConfig();
+
+  console.log("[LANGFUSE_DIAGNOSTIC] Testing connectivity to:", config.baseUrl);
+
+  try {
+    // Try to reach the Langfuse API (no auth required for health check)
+    const response = await fetch(`${config.baseUrl}/api/public/health`, {
+      method: "GET",
+      signal: AbortSignal.timeout(5000) // 5 second timeout
+    });
+
+    console.log("[LANGFUSE_DIAGNOSTIC] Health check response:", {
+      status: response.status,
+      ok: response.ok
+    });
+
+    return {
+      reachable: response.ok,
+      statusCode: response.status
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("[LANGFUSE_DIAGNOSTIC] Health check failed:", errorMessage);
+
+    return {
+      reachable: false,
+      error: errorMessage
+    };
+  }
 }
 
 // ============= INGESTION BATCH API =============
@@ -157,12 +204,17 @@ function queueEvent(event: IngestionEvent): void {
  * This MUST be called before the Edge Function returns!
  */
 export async function flushLangfuse(): Promise<{ success: boolean; error?: string }> {
+  // TEMPORARY DIAGNOSTIC: Log flush attempt
+  console.log("[LANGFUSE_DIAGNOSTIC] flushLangfuse() called, pending events:", pendingEvents.length);
+
   if (!isLangfuseEnabled()) {
+    console.log("[LANGFUSE_DIAGNOSTIC] Langfuse disabled - skipping flush");
     pendingEvents = [];
     return { success: true };
   }
 
   if (pendingEvents.length === 0) {
+    console.log("[LANGFUSE_DIAGNOSTIC] No pending events to flush");
     return { success: true };
   }
 
@@ -174,6 +226,8 @@ export async function flushLangfuse(): Promise<{ success: boolean; error?: strin
   pendingEvents = []; // Clear immediately to prevent duplicate sends
 
   console.log(`[Langfuse] Flushing ${batch.length} events to ingestion API`);
+  // TEMPORARY DIAGNOSTIC: Show event types
+  console.log("[LANGFUSE_DIAGNOSTIC] Event types:", batch.map(e => e.type).join(", "));
 
   try {
     const response = await fetch(`${config.baseUrl}/api/public/ingestion`, {
@@ -191,9 +245,18 @@ export async function flushLangfuse(): Promise<{ success: boolean; error?: strin
       }),
     });
 
+    // TEMPORARY DIAGNOSTIC: Log response status
+    console.log("[LANGFUSE_DIAGNOSTIC] Ingestion API response status:", response.status);
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[Langfuse] Ingestion API error: ${response.status} - ${errorText}`);
+      // TEMPORARY DIAGNOSTIC: Log full error details
+      console.error("[LANGFUSE_DIAGNOSTIC] Full error response:", {
+        status: response.status,
+        statusText: response.statusText,
+        errorText: errorText.substring(0, 500)
+      });
       return { success: false, error: `Ingestion error: ${response.status}` };
     }
 
@@ -209,13 +272,21 @@ export async function flushLangfuse(): Promise<{ success: boolean; error?: strin
 // ============= TRACE OPERATIONS =============
 
 export async function createTrace(params: LangfuseTraceParams): Promise<{ success: boolean; traceId?: string; error?: string }> {
+  // TEMPORARY DIAGNOSTIC: Log trace creation attempt
+  console.log("[LANGFUSE_DIAGNOSTIC] createTrace() called:", {
+    name: params.name,
+    hasMetadata: !!params.metadata,
+    tags: params.tags
+  });
+
   if (!isLangfuseEnabled()) {
     console.log("[Langfuse] Disabled, skipping trace creation");
+    console.log("[LANGFUSE_DIAGNOSTIC] Trace creation skipped - Langfuse disabled");
     return { success: true, traceId: params.id || `noop-${Date.now()}` };
   }
 
   const traceId = params.id || crypto.randomUUID();
-  
+
   queueEvent({
     id: crypto.randomUUID(),
     type: "trace-create",
@@ -233,7 +304,9 @@ export async function createTrace(params: LangfuseTraceParams): Promise<{ succes
   });
 
   console.log(`[Langfuse] Queued trace creation: ${params.name} (id: ${traceId})`);
-  
+  // TEMPORARY DIAGNOSTIC: Confirm trace queued
+  console.log("[LANGFUSE_DIAGNOSTIC] Trace event queued successfully, pending events:", pendingEvents.length);
+
   return { success: true, traceId };
 }
 
@@ -268,8 +341,16 @@ export async function updateTrace(
  * CRITICAL: This queues the event - you MUST call flushLangfuse() before returning!
  */
 export async function logGeneration(params: LangfuseGenerationParams): Promise<{ success: boolean; generationId?: string; error?: string }> {
+  // TEMPORARY DIAGNOSTIC: Log generation attempt
+  console.log("[LANGFUSE_DIAGNOSTIC] logGeneration() called:", {
+    name: params.name,
+    traceId: params.traceId,
+    model: params.model
+  });
+
   if (!isLangfuseEnabled()) {
     console.log("[Langfuse] Disabled, skipping generation log");
+    console.log("[LANGFUSE_DIAGNOSTIC] Generation log skipped - Langfuse disabled");
     return { success: true, generationId: params.id || `noop-${Date.now()}` };
   }
 
