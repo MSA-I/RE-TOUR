@@ -226,16 +226,23 @@ serve(async (req) => {
         });
       }
 
-      // Build the improved prompt using AI with user feedback integration
+      // Build the improved prompt using AI with user feedback SIGNALS (not verbatim text)
+      // CRITICAL: We use SCORES and PATTERNS, not raw user comments
       const userFeedbackNote = feedbackSignal?.user_score !== undefined
-        ? `\nUSER FEEDBACK SIGNAL:
+        ? `\nUSER FEEDBACK SIGNAL (structured, not verbatim):
 - User rated the rejected output ${feedbackSignal.user_score}/100
-- ${feedbackSignal.user_score >= 70 
+- ${feedbackSignal.user_score >= 70
     ? "User thought output was GOOD despite rejection - QA may be too strict. Relax constraints slightly."
-    : feedbackSignal.user_score < 40 
+    : feedbackSignal.user_score < 40
       ? "User agreed output was POOR - QA rejection confirmed. Apply stricter constraints."
       : "User rated output as FAIR - balanced improvements needed."}
-${feedbackSignal.user_comment ? `- User comment: "${feedbackSignal.user_comment}"` : ""}`
+- User comment sentiment: ${feedbackSignal.user_comment
+    ? (feedbackSignal.user_comment.toLowerCase().includes("good") || feedbackSignal.user_comment.toLowerCase().includes("great")
+      ? "positive tone detected"
+      : feedbackSignal.user_comment.toLowerCase().includes("bad") || feedbackSignal.user_comment.toLowerCase().includes("terrible")
+        ? "negative tone detected"
+        : "neutral tone detected")
+    : "no comment provided"}`
         : "";
 
       // NEW: Build historical user patterns section from human feedback memory
