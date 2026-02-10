@@ -240,7 +240,7 @@ export async function updateRuleStrength(
  * Apply time decay to all active rules
  * Should be run daily via cron job
  */
-export async function applyTimeDe cay(supabase: any): Promise<void> {
+export async function applyTimeDecay(supabase: any): Promise<void> {
   const now = new Date();
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
