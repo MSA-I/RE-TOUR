@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSupabaseClient } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -22,7 +22,6 @@ interface RetryAnalyticsDashboardProps {
  * Demonstrates learning effectiveness as retry count trends toward 0.
  */
 export function RetryAnalyticsDashboard({ projectId, stepId }: RetryAnalyticsDashboardProps) {
-  const supabase = useSupabaseClient();
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
   const [analytics, setAnalytics] = useState<RetryAnalytics | null>(null);
   const [loading, setLoading] = useState(false);

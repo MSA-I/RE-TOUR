@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSupabaseClient } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,7 +51,6 @@ interface QAPolicyRule {
  * User interface for viewing and managing learned QA rules
  */
 export function QALearningDashboard() {
-  const supabase = useSupabaseClient();
   const { toast } = useToast();
   const [rules, setRules] = useState<QAPolicyRule[]>([]);
   const [loading, setLoading] = useState(true);

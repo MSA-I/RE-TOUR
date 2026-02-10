@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSupabaseClient } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ConstraintStackDepth {
   total: number;
@@ -15,7 +15,6 @@ interface ConstraintStackDepth {
  * Shows how many learned constraints are active at each escalation level.
  */
 export function useConstraintStackDepth(stepId: number | null) {
-  const supabase = useSupabaseClient();
   const [depth, setDepth] = useState<ConstraintStackDepth | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
