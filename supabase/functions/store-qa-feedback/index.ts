@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
+import { logRuleActivation } from "../_shared/qa-learning-injector.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -193,6 +194,7 @@ serve(async (req) => {
       if (matchedRule) {
         // Increment support count
         const newSupportCount = (matchedRule.support_count || 1) + 1;
+        const oldStatus = matchedRule.rule_status;
         const newStatus = newSupportCount >= ACTIVATION_THRESHOLD ? "active" : matchedRule.rule_status;
 
         await supabase
@@ -207,10 +209,20 @@ serve(async (req) => {
         policyRuleCreated = true;
         policyRuleStatus = newStatus as "pending" | "active";
 
+        // Log rule activation if status changed from pending to active
+        if (oldStatus === "pending" && newStatus === "active") {
+          await logRuleActivation(
+            supabase,
+            { ...matchedRule, support_count: newSupportCount, rule_status: newStatus },
+            `${newSupportCount}${newSupportCount === 1 ? 'st' : newSupportCount === 2 ? 'nd' : newSupportCount === 3 ? 'rd' : 'th'} user confirmation (threshold: ${ACTIVATION_THRESHOLD})`
+          );
+        }
+
         console.log("[store-qa-feedback] Updated existing rule:", {
           ruleId: matchedRule.id,
           newSupportCount,
           newStatus,
+          wasActivated: oldStatus === "pending" && newStatus === "active",
         });
       } else {
         // Create new pending rule

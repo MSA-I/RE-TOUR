@@ -2,8 +2,9 @@ import { memo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Bug, ChevronDown, ChevronRight, AlertTriangle, RotateCcw } from "lucide-react";
+import { Bug, ChevronDown, ChevronRight, AlertTriangle, RotateCcw, Brain } from "lucide-react";
 import { validatePipelineState, type PipelineForValidation } from "@/lib/pipelineStateValidator";
+import { useConstraintStackDepth } from "@/hooks/useConstraintStackDepth";
 
 interface PipelineDebugPanelProps {
   pipelineId: string;
@@ -49,7 +50,10 @@ export const PipelineDebugPanel = memo(function PipelineDebugPanel({
   cameraPlanConfirmedAt,
 }: PipelineDebugPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
-  
+
+  // Fetch constraint stack depth for learning visibility
+  const { depth: constraintDepth } = useConstraintStackDepth(currentStep);
+
   // NOTE: DEV-only restriction REMOVED per recovery plan
   // Keep visible in production until pipeline stability is proven
 
@@ -258,6 +262,43 @@ export const PipelineDebugPanel = memo(function PipelineDebugPanel({
             </span>
           </div>
           
+          {/* QA Learning: Constraint Stack Depth */}
+          {constraintDepth && constraintDepth.total > 0 && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border/30 pt-1.5 mt-1.5">
+              <span className="flex items-center gap-1">
+                <Brain className="w-3 h-3 text-blue-400" />
+                <span className="text-muted-foreground">learned_constraints: </span>
+                <Badge variant="secondary" className="text-xs px-1 py-0">
+                  Base + {constraintDepth.total}
+                </Badge>
+              </span>
+              {constraintDepth.byLevel.system > 0 && (
+                <span>
+                  <span className="text-muted-foreground">system: </span>
+                  <Badge variant="destructive" className="text-xs px-1 py-0">
+                    {constraintDepth.byLevel.system}
+                  </Badge>
+                </span>
+              )}
+              {constraintDepth.byLevel.critical > 0 && (
+                <span>
+                  <span className="text-muted-foreground">critical: </span>
+                  <Badge variant="outline" className="text-xs px-1 py-0 border-orange-500/50 text-orange-400">
+                    {constraintDepth.byLevel.critical}
+                  </Badge>
+                </span>
+              )}
+              {constraintDepth.byLevel.body > 0 && (
+                <span>
+                  <span className="text-muted-foreground">body: </span>
+                  <Badge variant="outline" className="text-xs px-1 py-0">
+                    {constraintDepth.byLevel.body}
+                  </Badge>
+                </span>
+              )}
+            </div>
+          )}
+
           {lastAction && (
             <div className="border-t border-border/30 pt-1.5 mt-1.5">
               <span className="text-muted-foreground">last_action: </span>

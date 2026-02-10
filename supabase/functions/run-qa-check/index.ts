@@ -33,6 +33,9 @@ import {
   normalizeScore,
   QA_PASS_THRESHOLD,
 } from "../_shared/qa-judge-persistence.ts";
+import {
+  trackRuleViolationsAndEscalate,
+} from "../_shared/qa-learning-injector.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1699,6 +1702,25 @@ ${basePrompt}`;
         
         if (persistResult.success) {
           console.log(`[qa-check] ✓ Persisted QA result to DB: ${persistResult.id}`);
+
+          // Track rule violations and escalate constraints if QA failed
+          if (qaResult.pass === false) {
+            const violatedRules = extractViolatedRulesFromResult(qaResult);
+            if (violatedRules.length > 0) {
+              try {
+                await trackRuleViolationsAndEscalate(
+                  serviceClient,
+                  violatedRules,
+                  userId,
+                  effectiveStepId
+                );
+                console.log(`[qa-check] ✓ Tracked ${violatedRules.length} rule violations for escalation`);
+              } catch (escalateErr) {
+                console.error(`[qa-check] ✗ Failed to track rule violations:`, escalateErr);
+                // Don't block response on escalation failure
+              }
+            }
+          }
         } else {
           console.error(`[qa-check] ✗ Failed to persist QA result: ${persistResult.error}`);
         }

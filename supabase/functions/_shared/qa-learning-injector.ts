@@ -14,6 +14,8 @@ interface QAPolicyRule {
   category: string;
   rule_text: string;
   support_count: number;
+  violation_count: number;
+  escalation_level: "body" | "critical" | "system";
 }
 
 interface QASimilarCase {
@@ -105,14 +107,42 @@ export async function fetchLearningContext(
 
 /**
  * Format learning context for injection into QA prompt
+ * Organizes rules by escalation level (system > critical > body)
  */
 export function formatLearningContextForPrompt(context: QALearningContext): string {
   const sections: string[] = [];
 
-  // Policy rules section
-  if (context.policyRules.length > 0) {
+  // Group rules by escalation level
+  const systemRules = context.policyRules.filter(r => r.escalation_level === "system");
+  const criticalRules = context.policyRules.filter(r => r.escalation_level === "critical");
+  const bodyRules = context.policyRules.filter(r => r.escalation_level === "body");
+
+  // System-level rules (highest priority - violated 4+ times)
+  if (systemRules.length > 0) {
+    sections.push("╔══════════════════════════════════════════════════════╗");
+    sections.push("║ SYSTEM-LEVEL CONSTRAINTS (ABSOLUTE REQUIREMENTS)     ║");
+    sections.push("╚══════════════════════════════════════════════════════╝");
+    systemRules.forEach((rule, i) => {
+      sections.push(`${i + 1}. [${rule.category}] ${rule.rule_text}`);
+      sections.push(`   └─ Confirmed: ${rule.support_count}x | Violations: ${rule.violation_count}x`);
+    });
+    sections.push("");
+  }
+
+  // Critical rules (high priority - violated 2-3 times)
+  if (criticalRules.length > 0) {
+    sections.push("⚠️  CRITICAL CONSTRAINTS (HIGH ATTENTION REQUIRED) ⚠️");
+    criticalRules.forEach((rule, i) => {
+      sections.push(`${i + 1}. [${rule.category}] ${rule.rule_text}`);
+      sections.push(`   └─ Confirmed: ${rule.support_count}x | Violations: ${rule.violation_count}x`);
+    });
+    sections.push("");
+  }
+
+  // Body rules (normal priority - violated 0-1 times)
+  if (bodyRules.length > 0) {
     sections.push("=== LEARNED POLICY RULES (from user feedback) ===");
-    context.policyRules.forEach((rule, i) => {
+    bodyRules.forEach((rule, i) => {
       sections.push(`${i + 1}. [${rule.category}] ${rule.rule_text} (confirmed ${rule.support_count}x)`);
     });
   }
@@ -229,4 +259,156 @@ export function buildAutoFixPromptDelta(
   changes.push(`New seed: ${settingsAdjustments.seed}`);
 
   return { promptAdjustments, settingsAdjustments, changes };
+}
+
+/**
+ * Track rule violations and escalate constraints
+ * Called when QA identifies violated rules in the output
+ */
+export async function trackRuleViolationsAndEscalate(
+  supabase: any,
+  violatedRules: string[], // Array of rule IDs or categories
+  ownerId: string,
+  stepId: number
+): Promise<void> {
+  for (const ruleIdentifier of violatedRules) {
+    // Find the rule (by ID or by category match)
+    const { data: rules } = await supabase
+      .from("qa_policy_rules")
+      .select("*")
+      .eq("owner_id", ownerId)
+      .eq("rule_status", "active")
+      .or(`id.eq.${ruleIdentifier},category.eq.${ruleIdentifier}`)
+      .eq("step_id", stepId);
+
+    if (!rules || rules.length === 0) continue;
+
+    for (const rule of rules) {
+      const newViolationCount = rule.violation_count + 1;
+      const oldEscalationLevel = rule.escalation_level;
+      let newEscalationLevel = oldEscalationLevel;
+
+      // Escalation thresholds
+      if (newViolationCount >= 4 && rule.escalation_level !== "system") {
+        newEscalationLevel = "system";
+        console.log(`[ESCALATION] Rule "${rule.rule_text}" promoted to SYSTEM level (${newViolationCount} violations)`);
+      } else if (newViolationCount >= 2 && rule.escalation_level === "body") {
+        newEscalationLevel = "critical";
+        console.log(`[ESCALATION] Rule "${rule.rule_text}" promoted to CRITICAL level (${newViolationCount} violations)`);
+      }
+
+      // Update rule with new violation count and escalation level
+      await supabase
+        .from("qa_policy_rules")
+        .update({
+          violation_count: newViolationCount,
+          escalation_level: newEscalationLevel,
+        })
+        .eq("id", rule.id);
+
+      // Log escalation if level changed
+      if (newEscalationLevel !== oldEscalationLevel) {
+        await logRulePromotion(
+          supabase,
+          { ...rule, violation_count: newViolationCount, escalation_level: newEscalationLevel },
+          "escalation",
+          null,
+          null,
+          oldEscalationLevel,
+          newEscalationLevel,
+          `${newViolationCount}${newViolationCount === 1 ? 'st' : newViolationCount === 2 ? 'nd' : newViolationCount === 3 ? 'rd' : 'th'} violation`
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Get constraint stack depth for visibility
+ * Returns count of active learned constraints
+ */
+export async function getConstraintStackDepth(
+  supabase: any,
+  ownerId: string,
+  stepId: number
+): Promise<{ total: number; byLevel: { system: number; critical: number; body: number } }> {
+  const { data: rules } = await supabase
+    .from("qa_policy_rules")
+    .select("escalation_level")
+    .eq("owner_id", ownerId)
+    .eq("rule_status", "active")
+    .or(`step_id.eq.${stepId},step_id.is.null`);
+
+  if (!rules || rules.length === 0) {
+    return { total: 0, byLevel: { system: 0, critical: 0, body: 0 } };
+  }
+
+  const byLevel = {
+    system: rules.filter(r => r.escalation_level === "system").length,
+    critical: rules.filter(r => r.escalation_level === "critical").length,
+    body: rules.filter(r => r.escalation_level === "body").length,
+  };
+
+  return {
+    total: rules.length,
+    byLevel,
+  };
+}
+
+/**
+ * Log rule promotion to audit log
+ * Records when rules are activated or escalated
+ */
+async function logRulePromotion(
+  supabase: any,
+  rule: QAPolicyRule,
+  promotionType: "activation" | "escalation",
+  fromStatus: string | null,
+  toStatus: string | null,
+  fromLevel: string | null,
+  toLevel: string | null,
+  triggerReason: string
+): Promise<void> {
+  try {
+    await supabase.from("qa_rule_promotion_log").insert({
+      rule_id: rule.id,
+      owner_id: supabase.auth.user()?.id, // Will use service role context
+      promotion_type: promotionType,
+      from_status: fromStatus,
+      to_status: toStatus,
+      from_level: fromLevel,
+      to_level: toLevel,
+      trigger_reason: triggerReason,
+      rule_text: rule.rule_text,
+      category: rule.category,
+      support_count: rule.support_count,
+      violation_count: rule.violation_count,
+    });
+
+    console.log(`[PROMOTION LOG] ${promotionType}: ${rule.rule_text} | ${triggerReason}`);
+  } catch (error) {
+    console.error(`[PROMOTION LOG] Failed to log promotion:`, error);
+    // Don't throw - logging should not block operations
+  }
+}
+
+/**
+ * Log rule activation (pending -> active)
+ * Called when a rule reaches the support threshold
+ */
+export async function logRuleActivation(
+  supabase: any,
+  rule: QAPolicyRule,
+  triggerReason: string
+): Promise<void> {
+  await logRulePromotion(
+    supabase,
+    rule,
+    "activation",
+    "pending",
+    "active",
+    null,
+    null,
+    triggerReason
+  );
 }
