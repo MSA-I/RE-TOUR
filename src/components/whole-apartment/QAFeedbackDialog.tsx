@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, AlertTriangle, ThumbsUp, ThumbsDown, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Category options matching the database enum
+// Category options matching the database enum (kept for backward compatibility)
 export const QA_CATEGORIES = {
   furniture_scale: "Furniture Scale",
   extra_furniture: "Extra Furniture",
@@ -21,13 +21,32 @@ export const QA_CATEGORIES = {
 
 export type QACategoryKey = keyof typeof QA_CATEGORIES;
 
+// NEW: Structured QA Tags for learning system
+export const QA_TAGS = [
+  "Geometry / Layout",
+  "Scale / Proportions",
+  "Doors / Openings",
+  "Windows",
+  "Room Function / Misclassification",
+  "Furniture Placement",
+  "Style Drift",
+  "Lighting / Exposure",
+  "Camera / Eye-Level / FOV",
+  "Artifacts / Broken Image",
+  "Other",
+] as const;
+
+export type QATag = typeof QA_TAGS[number];
+
 export interface QAFeedbackData {
   decision: "approved" | "rejected";
-  category: QACategoryKey;
+  category: QACategoryKey; // Kept for backward compatibility
   reasonShort: string;
   qaWasWrong: boolean;
   /** Manual QA score (0-100) - REQUIRED */
   score: number | null;
+  /** NEW: Structured tags for learning system */
+  tags: string[];
 }
 
 interface QAFeedbackDialogProps {
@@ -67,11 +86,9 @@ export function QAFeedbackDialog({
   stepNumber = 1,
   initialScore = null,
 }: QAFeedbackDialogProps) {
-  const [category, setCategory] = useState<QACategoryKey>(
-    suggestedCategory && suggestedCategory in QA_CATEGORIES
-      ? (suggestedCategory as QACategoryKey)
-      : "other"
-  );
+  // NEW: Tags state (multi-select)
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+
   const [reasonShort, setReasonShort] = useState("");
   const [qaWasWrong, setQaWasWrong] = useState(mode === "approve" && qaOriginalStatus === "rejected");
 
@@ -91,12 +108,7 @@ export function QAFeedbackDialog({
   // Reset form when dialog opens
   const handleOpenChange = useCallback((newOpen: boolean) => {
     if (newOpen) {
-      // Pre-fill category from QA suggestion
-      if (suggestedCategory && suggestedCategory in QA_CATEGORIES) {
-        setCategory(suggestedCategory as QACategoryKey);
-      } else {
-        setCategory("other");
-      }
+      setSelectedTags(new Set());
       setReasonShort("");
       setQaWasWrong(mode === "approve" && qaOriginalStatus === "rejected");
       // Reset score
@@ -105,7 +117,7 @@ export function QAFeedbackDialog({
       setScoreError(null);
     }
     onOpenChange(newOpen);
-  }, [suggestedCategory, mode, qaOriginalStatus, onOpenChange, initialScore]);
+  }, [mode, qaOriginalStatus, onOpenChange, initialScore]);
 
   // Handle score input change
   const handleScoreChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -128,32 +140,61 @@ export function QAFeedbackDialog({
     }
   }, []);
 
+  // NEW: Toggle tag selection
+  const toggleTag = useCallback((tag: string) => {
+    setSelectedTags(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(tag)) {
+        newSet.delete(tag);
+      } else {
+        newSet.add(tag);
+      }
+      return newSet;
+    });
+  }, []);
+
   const handleSubmit = useCallback(() => {
     // Require score for submission
     if (score === null) {
       setScoreError("Score is required");
       return;
     }
-    if (!reasonShort.trim()) return;
+
+    // Require at least one tag
+    if (selectedTags.size === 0) {
+      return;
+    }
+
+    const tags = Array.from(selectedTags);
+
+    // Map first tag to category for backward compatibility
+    const tagToCategoryMap: Record<string, QACategoryKey> = {
+      "Scale / Proportions": "furniture_scale",
+      "Furniture Placement": "extra_furniture",
+      "Geometry / Layout": "structural_change",
+      "Room Function / Misclassification": "structural_change",
+      "Style Drift": "flooring_mismatch",
+    };
+    const category = tagToCategoryMap[tags[0]] || "other";
 
     onSubmit({
       decision: mode === "approve" ? "approved" : "rejected",
-      category,
-      reasonShort: reasonShort.trim().slice(0, 500),
+      category, // Backward compatibility
+      reasonShort: reasonShort.trim().slice(0, 500) || "(No additional note)",
       qaWasWrong,
       score,
+      tags, // NEW: Include structured tags
     });
-  }, [mode, category, reasonShort, qaWasWrong, score, onSubmit]);
+  }, [mode, reasonShort, qaWasWrong, score, selectedTags, onSubmit]);
 
   const isValid = useMemo(() => {
     return (
-      reasonShort.trim().length >= 5 &&
-      reasonShort.trim().length <= 500 &&
       score !== null &&
       score >= 0 &&
-      score <= 100
+      score <= 100 &&
+      selectedTags.size > 0 // At least one tag required
     );
-  }, [reasonShort, score]);
+  }, [score, selectedTags]);
 
   const charCount = reasonShort.length;
   const isOverLimit = charCount > 500;
@@ -177,7 +218,7 @@ export function QAFeedbackDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {mode === "approve" ? (
@@ -193,7 +234,7 @@ export function QAFeedbackDialog({
             )}
           </DialogTitle>
           <DialogDescription>
-            Score the quality (0–100) and provide feedback to improve future QA decisions.
+            Score the quality (0–100) and select tags to improve future QA decisions.
           </DialogDescription>
         </DialogHeader>
 
@@ -279,28 +320,51 @@ export function QAFeedbackDialog({
             )}
           </div>
 
-          {/* Category selector */}
+          {/* NEW: QA Tags (multi-select) - REQUIRED */}
           <div className="space-y-2">
-            <Label htmlFor="category">Category</Label>
-            <Select value={category} onValueChange={(v) => setCategory(v as QACategoryKey)}>
-              <SelectTrigger id="category">
-                <SelectValue placeholder="Select category..." />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(QA_CATEGORIES).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>
-                    {label}
-                  </SelectItem>
+            <Label className="flex items-center gap-1">
+              QA Tags <span className="text-destructive">*</span>
+            </Label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Tags are used to improve future retries and learning. Select all that apply.
+            </p>
+            <div className="grid grid-cols-1 gap-2 max-h-[180px] overflow-y-auto border rounded-md p-3">
+              {QA_TAGS.map((tag) => (
+                <div key={tag} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`tag-${tag}`}
+                    checked={selectedTags.has(tag)}
+                    onCheckedChange={() => toggleTag(tag)}
+                    disabled={isSubmitting}
+                  />
+                  <Label
+                    htmlFor={`tag-${tag}`}
+                    className="text-sm font-normal cursor-pointer leading-tight"
+                  >
+                    {tag}
+                  </Label>
+                </div>
+              ))}
+            </div>
+            {selectedTags.size === 0 && (
+              <p className="text-xs text-destructive">At least one tag is required</p>
+            )}
+            {selectedTags.size > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {Array.from(selectedTags).map((tag) => (
+                  <Badge key={tag} variant="secondary" className="text-xs">
+                    {tag}
+                  </Badge>
                 ))}
-              </SelectContent>
-            </Select>
+              </div>
+            )}
           </div>
 
-          {/* Reason input */}
+          {/* Reason input - NOW OPTIONAL */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="reason">
-                Feedback Note <span className="text-destructive">*</span>
+                Feedback Note <span className="text-xs text-muted-foreground">(optional)</span>
               </Label>
               <span className={`text-xs ${isOverLimit ? "text-destructive" : "text-muted-foreground"}`}>
                 {charCount}/500
@@ -315,12 +379,13 @@ export function QAFeedbackDialog({
               }
               value={reasonShort}
               onChange={(e) => setReasonShort(e.target.value)}
-              className="min-h-[80px] resize-none"
-              maxLength={510} // Slight buffer for UX
+              className="min-h-[60px] resize-none"
+              maxLength={510}
+              disabled={isSubmitting}
             />
-            {reasonShort.length > 0 && reasonShort.length < 5 && (
-              <p className="text-xs text-destructive">Minimum 5 characters required</p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              Add context for humans. Tags are the machine-readable reason.
+            </p>
           </div>
 
           {/* QA was wrong checkbox - only show for approvals when QA rejected */}
@@ -330,6 +395,7 @@ export function QAFeedbackDialog({
                 id="qaWasWrong"
                 checked={qaWasWrong}
                 onCheckedChange={(checked) => setQaWasWrong(checked === true)}
+                disabled={isSubmitting}
               />
               <div className="grid gap-1.5 leading-none">
                 <Label
