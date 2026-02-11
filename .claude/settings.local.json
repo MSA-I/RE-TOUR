@@ -46,7 +46,8 @@
       "Bash(supabase functions deploy:*)",
       "Bash(git commit:*)",
       "Bash(supabase functions list:*)",
-      "Bash(supabase db dump:*)"
+      "Bash(supabase db dump:*)",
+      "Bash(cat:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

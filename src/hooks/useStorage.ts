@@ -208,27 +208,54 @@ export function useStorage() {
   }, [getAccessToken]);
 
   const uploadFile = useCallback(async (bucket: string, path: string, file: File) => {
-    const { signedUrl, token } = await getSignedUploadUrl(bucket, path, file.type);
+    console.log(`[useStorage] Starting upload: bucket=${bucket}, path=${path}, type=${file.type}, size=${file.size}`);
 
-    // Add token to the signed URL as required by Supabase Storage
-    const uploadUrl = `${signedUrl}${signedUrl.includes('?') ? '&' : '?'}token=${token}`;
+    let uploadUrlData;
+    try {
+      uploadUrlData = await getSignedUploadUrl(bucket, path, file.type);
+      console.log("[useStorage] Got signed URL data:", {
+        hasSignedUrl: !!uploadUrlData?.signedUrl,
+        hasToken: !!uploadUrlData?.token,
+        path: uploadUrlData?.path
+      });
+    } catch (error) {
+      console.error("[useStorage] Failed to get signed URL:", error);
+      throw error;
+    }
 
-    const response = await fetch(uploadUrl, {
+    const { signedUrl, token, path: returnedPath } = uploadUrlData;
+
+    if (!signedUrl) {
+      console.error("[useStorage] Missing signedUrl in response");
+      throw new Error("Invalid upload URL response: missing signedUrl");
+    }
+
+    console.log("[useStorage] Uploading file to Supabase Storage...");
+
+    // Use the signed URL exactly as returned - it includes all necessary auth
+    const response = await fetch(signedUrl, {
       method: "PUT",
+      body: file,
       headers: {
         "Content-Type": file.type || "application/octet-stream",
-        "x-upsert": "true",
+        "Cache-Control": "3600",
       },
-      body: file,
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Upload failed:", response.status, errorText);
-      throw new Error(`Failed to upload file: ${response.status}`);
+      console.error("[useStorage] Upload failed:", {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        contentType: file.type,
+        fileSize: file.size,
+      });
+      throw new Error(`Failed to upload file: ${response.status} - ${errorText || response.statusText}`);
     }
 
-    return { path, token };
+    console.log("[useStorage] Upload successful");
+    return { path: returnedPath || path, token };
   }, [getSignedUploadUrl]);
 
   return {

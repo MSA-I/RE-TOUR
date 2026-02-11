@@ -77,9 +77,12 @@ serve(async (req) => {
 
     console.log(`Creating signed upload URL for ${bucket}/${path}`);
 
+    // Create signed upload URL with upsert option
     const { data, error } = await supabaseAdmin.storage
       .from(bucket)
-      .createSignedUploadUrl(path);
+      .createSignedUploadUrl(path, {
+        upsert: true,
+      });
 
     if (error) {
       console.error("Storage error:", error);
@@ -89,10 +92,22 @@ serve(async (req) => {
       );
     }
 
-    console.log("Signed upload URL created successfully");
+    if (!data || !data.signedUrl) {
+      console.error("No signed URL returned from storage");
+      return new Response(
+        JSON.stringify({ error: "Failed to generate signed URL" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log("Signed upload URL created successfully:", {
+      path: data.path,
+      hasToken: !!data.token,
+      urlLength: data.signedUrl?.length,
+    });
 
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         signedUrl: data.signedUrl,
         token: data.token,
         path: data.path
