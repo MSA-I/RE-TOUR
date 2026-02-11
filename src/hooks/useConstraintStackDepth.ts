@@ -30,10 +30,20 @@ export function useConstraintStackDepth(stepId: number | null) {
       setError(null);
 
       try {
+        // Get session explicitly to pass Authorization header
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session) {
+          throw new Error("Not authenticated. Please log in.");
+        }
+
+        // Pass Authorization header explicitly (don't rely on SDK auto-injection)
         const { data, error: fetchError } = await supabase.functions.invoke(
           "get-constraint-stack-depth",
           {
             body: { stepId },
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
           }
         );
 

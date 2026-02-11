@@ -1,12 +1,18 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DEPRECATED: This edge function uses OpenAI which has been removed
+// ═══════════════════════════════════════════════════════════════════════════
+// The application no longer uses OpenAI - only GEMINI and NANO BANANA APIs.
+// This function will return an error if called.
+// Related UI: PipelineSuggestionsPanel (uses usePipelinePromptComposer hook)
+// ═══════════════════════════════════════════════════════════════════════════
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const API_OPENAI = Deno.env.get("API_OPENAI");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -329,18 +335,18 @@ ${user_prompt_text || "No custom requirements provided."}
 
 Analyze these inputs and compose the final optimized prompt. Choose the best template and merge all inputs into a cohesive prompt that follows the template structure.`;
 
-    console.log(`Composing prompt for step ${step_number}...`);
+    console.log(`[DEPRECATED] compose-pipeline-prompt called for step ${step_number} - OpenAI removed from application`);
 
-    if (!API_OPENAI) {
-      return new Response(JSON.stringify({ 
-        ok: false,
-        error_code: "CONFIG_ERROR",
-        error_message: "API_OPENAI secret not configured" 
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
+    // OpenAI has been removed from the application
+    // This function is deprecated and will return an error
+    return new Response(JSON.stringify({
+      ok: false,
+      error_code: "DEPRECATED",
+      error_message: "compose-pipeline-prompt is deprecated - OpenAI removed from application. Use GEMINI or NANO BANANA APIs instead."
+    }), {
+      status: 501,  // 501 Not Implemented
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
 
     // Use timeout of 25 seconds for AI call
     const response = await fetchWithTimeout(

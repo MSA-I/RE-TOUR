@@ -47,7 +47,16 @@
       "Bash(git commit:*)",
       "Bash(supabase functions list:*)",
       "Bash(supabase db dump:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(npm run lint)",
+      "Bash(where:*)",
+      "Bash(supabase db:*)",
+      "mcp__supabase__get_logs",
+      "mcp__supabase__list_edge_functions",
+      "Bash(deno check:*)",
+      "mcp__supabase__get_edge_function_details",
+      "mcp__supabase__list_rls_policies",
+      "Bash(supabase functions logs:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useRef, useMemo } from "react";
 import type { Json } from "@/integrations/supabase/types";
+import { useToast } from "@/hooks/use-toast";
 
 // ============= Types =============
 
@@ -337,6 +338,7 @@ export const LOCKED_PIPELINE_DISPLAY = [
 export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const subscriptionRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   // Fetch spaces with all related data
@@ -525,110 +527,68 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   });
 
   // Run Step 1: Top-Down 3D
-  // If phase is space_analysis_complete, first advance to top_down_3d_pending, then run.
-  // This ensures the phase contract is respected.
+  // Backend handles phase transition internally - just call run-pipeline-step directly
   const runTopDown3D = useMutation({
     mutationFn: async ({ pipelineId }: { pipelineId: string }) => {
-      // First check current phase
-      const { data: pipelineMeta, error: metaError } = await supabase
-        .from("floorplan_pipelines")
-        .select("whole_apartment_phase")
-        .eq("id", pipelineId)
-        .maybeSingle();
-
-      if (metaError) throw metaError;
-      if (!pipelineMeta) throw new Error("Pipeline not found");
-
-      const currentPhase = pipelineMeta.whole_apartment_phase ?? "upload";
-      console.log(`[TOP_DOWN_3D_START] Current phase: ${currentPhase}`);
-
-      // If phase is space_analysis_complete, need to advance first
-      if (currentPhase === "space_analysis_complete") {
-        console.log("[TOP_DOWN_3D_START] Phase is space_analysis_complete, calling continue-pipeline-step first");
-        const { data: continueData, error: continueError } = await supabase.functions.invoke("continue-pipeline-step", {
-          body: { pipeline_id: pipelineId, from_step: 0, from_phase: "space_analysis_complete" },
-        });
-
-        // Enhanced error logging
-        console.log("[TOP_DOWN_3D_START] continue-pipeline-step response:", {
-          hasError: !!continueError,
-          errorType: continueError?.constructor?.name,
-          errorMessage: continueError?.message,
-          errorContext: continueError?.context,
-          hasData: !!continueData,
-          dataError: continueData?.error,
-          dataSuccess: continueData?.success,
-        });
-
-        if (continueError) {
-          console.error("[TOP_DOWN_3D_START] continue-pipeline-step error:", continueError);
-          console.error("[TOP_DOWN_3D_START] Full error object:", JSON.stringify(continueError, null, 2));
-          throw new Error(`Phase transition failed: ${continueError.message || "Unknown error"}`);
-        }
-        if (continueData?.error) {
-          console.error("[TOP_DOWN_3D_START] continue-pipeline-step returned error:", continueData.error);
-          throw new Error(`Phase transition failed: ${continueData.error}`);
-        }
-        console.log("[TOP_DOWN_3D_START] ✓ Phase advanced to top_down_3d_pending");
-      }
-
-      // Now run the actual step
       console.log("[TOP_DOWN_3D_START] Invoking run-pipeline-step for Step 1");
-      const { data, error } = await supabase.functions.invoke("run-pipeline-step", {
-        body: { pipeline_id: pipelineId, step_number: 1, whole_apartment_mode: true },
-      });
 
-      // Enhanced error logging with response body extraction
-      console.log("[TOP_DOWN_3D_START] run-pipeline-step response:", {
-        hasError: !!error,
-        errorType: error?.constructor?.name,
-        errorMessage: error?.message,
-        errorContext: error?.context,
-        hasData: !!data,
-        dataError: data?.error,
+      const { data, error } = await supabase.functions.invoke("run-pipeline-step", {
+        body: {
+          pipeline_id: pipelineId,
+          step_number: 1,
+          whole_apartment_mode: true
+        },
       });
 
       if (error) {
         console.error("[TOP_DOWN_3D_START] Edge function error:", error);
-        console.error("[TOP_DOWN_3D_START] Full error object:", JSON.stringify(error, null, 2));
-
-        // CRITICAL: Try to extract the actual error message from the response
-        // The FunctionsHttpError doesn't expose the response body, but we might have it in data
-        let errorDetails = "Unknown error";
-        if (data?.error) {
-          errorDetails = data.error;
-        } else if (error.context instanceof Response) {
-          // Try to read the response body
-          try {
-            const responseText = await error.context.text();
-            console.error("[TOP_DOWN_3D_START] Response body:", responseText);
-            try {
-              const responseJson = JSON.parse(responseText);
-              errorDetails = responseJson.error || responseJson.message || responseText;
-            } catch {
-              errorDetails = responseText || "Unknown error";
-            }
-          } catch (readError) {
-            console.error("[TOP_DOWN_3D_START] Failed to read response body:", readError);
-          }
-        }
-
-        throw new Error(`Step 1 execution failed: ${errorDetails}`);
+        console.error("[TOP_DOWN_3D_START] Error details:", {
+          message: error.message,
+          name: error.name,
+          status: (error as any).status,
+          context: (error as any).context,
+          details: (error as any).details,
+        });
+        console.error("[TOP_DOWN_3D_START] Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+        throw new Error(`Step 1 execution failed: ${error.message || "Unknown error"}`);
       }
+
       if (data?.error) {
         console.error("[TOP_DOWN_3D_START] Backend returned error:", data.error);
         throw new Error(`Step 1 execution failed: ${data.error}`);
       }
 
-      console.log("[TOP_DOWN_3D_START] ✓ Step 1 completed successfully");
+      console.log("[TOP_DOWN_3D_START] ✓ Step 1 started successfully");
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      console.log("[TOP_DOWN_3D_START] ✓ Mutation succeeded, pipeline should be running");
     },
     onError: (error) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
-      console.error("[TOP_DOWN_3D_START] Error:", error);
+
+      // Log full error object for debugging
+      console.error("[TOP_DOWN_3D_START] ❌ Mutation failed:", error);
+      console.error("[TOP_DOWN_3D_START] Error details:", {
+        name: error?.name,
+        message: error?.message,
+        status: (error as any)?.status,
+        context: (error as any)?.context,
+        details: (error as any)?.details,
+      });
+
+      // Extract error code if present
+      const errorResponse = (error as any)?.context?.body;
+      const errorCode = errorResponse?.error_code || "UNKNOWN";
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+      toast({
+        title: "Failed to start Step 1",
+        description: `[${errorCode}] ${errorMessage}`,
+        variant: "destructive",
+        duration: 10000  // Show for 10 seconds (longer than default)
+      });
     },
   });
 
@@ -697,7 +657,28 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     },
     onError: (error) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
-      console.error("[STYLE_START] Error:", error);
+
+      // Log full error object for debugging
+      console.error("[STYLE_START] ❌ Mutation failed:", error);
+      console.error("[STYLE_START] Error details:", {
+        name: error?.name,
+        message: error?.message,
+        status: (error as any)?.status,
+        context: (error as any)?.context,
+        details: (error as any)?.details,
+      });
+
+      // Extract error code if present
+      const errorResponse = (error as any)?.context?.body;
+      const errorCode = errorResponse?.error_code || "UNKNOWN";
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+      toast({
+        title: "Failed to start Step 2",
+        description: `[${errorCode}] ${errorMessage}`,
+        variant: "destructive",
+        duration: 10000  // Show for 10 seconds (longer than default)
+      });
     },
   });
 

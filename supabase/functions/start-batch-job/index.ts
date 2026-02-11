@@ -179,7 +179,9 @@ const ASPECT_RATIO_MAP: Record<string, string> = {
   "21:9": "21:9",
 };
 
-// QA Validation function using OpenAI
+// QA Validation function using OpenAI (DEPRECATED - OpenAI removed from application)
+// Batch jobs now skip QA validation and auto-approve all outputs
+/*
 async function validateWithQA(
   originalBase64: string,
   outputBase64: string,
@@ -199,8 +201,8 @@ async function validateWithQA(
         messages: [
           {
             role: "system",
-            content: `You are a QA validator for architectural visualization. Compare the original image with the output image based on the requested change. 
-            
+            content: `You are a QA validator for architectural visualization. Compare the original image with the output image based on the requested change.
+
 Your job is to verify:
 1. The requested change was applied correctly
 2. No unintended changes were made to the scene
@@ -228,7 +230,7 @@ Respond with JSON only: {"decision": "approved" or "rejected", "reason": "brief 
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "";
-    
+
     // Parse JSON response
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -238,13 +240,14 @@ Respond with JSON only: {"decision": "approved" or "rejected", "reason": "brief 
         reason: parsed.reason || "No reason provided",
       };
     }
-    
+
     return { decision: "approved", reason: "QA response parsing fallback" };
   } catch (error) {
     console.error("QA validation error:", error);
     return { decision: "approved", reason: "QA validation skipped (error)" };
   }
 }
+*/
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -255,7 +258,6 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const nanoBananaApiKey = Deno.env.get("API_NANOBANANA");
-    const openaiApiKey = Deno.env.get("API_OPENAI");
 
     if (!nanoBananaApiKey) throw new Error("API_NANOBANANA secret is not configured");
 
@@ -472,20 +474,14 @@ serve(async (req) => {
           // QA Validation
           let qaDecision: "approved" | "rejected" = "approved";
           let qaReason = "QA validation skipped";
-          
-          if (openaiApiKey) {
-            await emitBatchEvent("item_qa", `[${i + 1}/${totalItems}] Running QA validation...`, itemProgress + 55, item.id);
-            
-            const qaResult = await validateWithQA(
-              originalBase64,
-              outputBase64,
-              batchJob.change_request,
-              openaiApiKey
-            );
-            
-            qaDecision = qaResult.decision;
-            qaReason = qaResult.reason;
-            
+
+          // OpenAI-based QA removed - skipping QA validation for batch jobs
+          // Batch jobs now auto-approve all outputs (no QA gate)
+          {
+            console.log(`[BATCH] Skipping QA validation (OpenAI removed) - auto-approving output ${i + 1}`);
+            qaDecision = "approved";
+            qaReason = "Auto-approved (QA disabled)";
+
             if (qaDecision === "approved") {
               approvedCount++;
               await emitBatchEvent("item_qa_pass", `[${i + 1}/${totalItems}] QA Approved: ${qaReason}`, itemProgress + 60, item.id);

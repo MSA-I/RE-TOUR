@@ -61,6 +61,7 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
+  AlertCircle,
   Terminal,
   MoreVertical,
   Trash2,
@@ -2237,6 +2238,10 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   const step2Out = stepOutputs["step2"] || stepOutputs["2"];
   const styledImageUploadId = step2Out?.upload_id || step2Out?.output_upload_id || null;
 
+  // Error banner state
+  const lastError = pipeline.last_error;
+  const hasError = !!lastError;
+
   const onAction = useCallback(
     (type: "generate" | "approve" | "reject" | "continue", meta?: Record<string, unknown>) => {
       setLastAction({ type, ts: Date.now(), meta });
@@ -2416,8 +2421,13 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   }, [pipeline.id, styledImageUploadId, runBatchRenders, toast]);
 
   const handleRunTopDown = useCallback(() => {
+    console.log("[UI] Step 1 Generate button clicked", {
+      pipelineId: pipeline.id,
+      currentPhase: pipeline.whole_apartment_phase,
+      currentStep: pipeline.current_step
+    });
     runTopDown3D.mutate({ pipelineId: pipeline.id });
-  }, [runTopDown3D, pipeline.id]);
+  }, [runTopDown3D, pipeline.id, pipeline.whole_apartment_phase, pipeline.current_step]);
 
   const handleRunStyle = useCallback(() => {
     const refIds = (pipeline.step_outputs as any)?.design_reference_ids || [];
@@ -3025,6 +3035,53 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {/* Error Banner */}
+          {hasError && (
+            <div className="p-4 bg-destructive/10 border-2 border-destructive/50 rounded-lg">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-destructive">Pipeline Error</p>
+                  <p className="text-sm text-muted-foreground mt-1 break-words font-mono">{lastError}</p>
+                  <div className="flex gap-2 mt-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        await supabase
+                          .from("floorplan_pipelines")
+                          .update({ last_error: null, updated_at: new Date().toISOString() })
+                          .eq("id", pipeline.id);
+                        toast({ title: "Error cleared" });
+                        queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+                      }}
+                    >
+                      Clear Error
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={() => {
+                        // Determine which step to retry based on current step
+                        const stepToRetry = pipeline.current_step;
+                        if (stepToRetry === 1) {
+                          runTopDown3D.mutate({ pipelineId: pipeline.id });
+                        } else if (stepToRetry === 2) {
+                          const designRefIds = (stepOutputs as Record<string, unknown>)?.design_reference_ids as string[] || [];
+                          runStyleTopDown.mutate({ pipelineId: pipeline.id, designRefUploadIds: designRefIds });
+                        }
+                        // Add more steps as needed
+                      }}
+                      disabled={isRunning}
+                    >
+                      Retry Step {pipeline.current_step}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Persistent Source Floor Plan Viewer - syncs to Step 3 output when available */}
           <SourcePlanViewer
             floorPlanUploadId={pipeline.floor_plan_upload_id}
