@@ -1422,6 +1422,24 @@ serve(async (req) => {
     const referenceStyleAnalysis = initialOutputs.reference_style_analysis || null;
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // CRITICAL: Validate Step 1 approval before running Step 2
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (currentStep === 2) {
+      const step1Data = initialOutputs.step1 as any;
+      const step1Approved = step1Data?.manual_approved === true;
+
+      if (!step1Approved) {
+        console.error(`[run-pipeline-step] Step 2 blocked: Step 1 not approved`);
+        throw new Error(
+          `Step 1 must be approved before running Step 2. ` +
+          `Please approve Step 1 output before proceeding.`
+        );
+      }
+
+      console.log(`[run-pipeline-step] Step 2: Step 1 approval verified ✓`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // DESIGN REFERENCE DATA FLOW FIX: Ensure IDs are present for Step 2 logic
     // Priority: 1) Request body, 2) DB step_outputs, 3) referenceStyleAnalysis metadata
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1888,6 +1906,10 @@ OUTPUT: High-quality professional EYE-LEVEL interior photograph.`;
         .replace("{SCALE_GUIDANCE_BLOCK}", dimensionAnalysis.scale_guidance_text)
         .replace("{FURNITURE_CONSTRAINTS_BLOCK}", furnitureConstraintsBlock);
 
+      // Inject text preservation for Step 1
+      console.log(`[Step 1] Injecting text preservation constraints`);
+      prompt = injectTextPreservationForGeneration(prompt, currentStep, false);
+
       await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "furniture_constraints",
         `Furniture constraints applied from ${currentSpaceAnalysis?.rooms?.length || 0} room(s)`, (currentStep - 1) * 25 + 9);
     } else if (currentStep === 2) {
@@ -1966,6 +1988,13 @@ Transform the visual design style by borrowing from the reference images while p
       } else {
         prompt = STEP_TEMPLATES[2].replace("{LAYOUT_PRESERVATION_BLOCK}", layoutPreservationBlock);
       }
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // CRITICAL: Inject text preservation block for Step 2
+      // This ensures room labels/text overlays from Step 1 are preserved
+      // ═══════════════════════════════════════════════════════════════════════════
+      console.log(`[Step 2] Injecting text preservation constraints`);
+      prompt = injectTextPreservationForGeneration(prompt, currentStep, false);
     } else {
       throw new Error(`Invalid step number: ${currentStep}`);
     }
