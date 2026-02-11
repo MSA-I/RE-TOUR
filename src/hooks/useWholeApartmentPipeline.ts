@@ -145,7 +145,6 @@ export const WHOLE_APARTMENT_PHASES = {
   // Step 4 (Internal) = Camera Intent (Spec Step 3 - decision-only layer)
   // User places camera markers, binds templates A-H to spaces
   camera_plan_pending: "camera_plan_pending",
-  camera_plan_in_progress: "camera_plan_in_progress",
   camera_plan_confirmed: "camera_plan_confirmed",
   // Step 5 (Internal) = Render + QA (Spec Step 4 & 5)
   renders_pending: "renders_pending",
@@ -202,7 +201,6 @@ export const PHASE_STEP_MAP: Record<string, number> = {
 
   // Step 4 (Internal) = Camera Intent (Spec: Step 3 - decision-only layer)
   camera_plan_pending: 4,
-  camera_plan_in_progress: 4,
   camera_plan_confirmed: 4,
 
   // Step 5 (Internal) = Render + QA (Spec: Step 4 & 5 - prompts + outputs + QA)
@@ -527,67 +525,73 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   });
 
   // Run Step 1: Top-Down 3D
-  // Backend handles phase transition internally - just call run-pipeline-step directly
+  // If phase is space_analysis_complete, first advance to top_down_3d_pending, then run.
+  // This ensures the phase contract is respected.
   const runTopDown3D = useMutation({
     mutationFn: async ({ pipelineId }: { pipelineId: string }) => {
+      // First check current phase
+      const { data: pipelineMeta, error: metaError } = await supabase
+        .from("floorplan_pipelines")
+        .select("whole_apartment_phase")
+        .eq("id", pipelineId)
+        .maybeSingle();
+
+      if (metaError) throw metaError;
+      if (!pipelineMeta) throw new Error("Pipeline not found");
+
+      const currentPhase = pipelineMeta.whole_apartment_phase ?? "upload";
+      console.log(`[TOP_DOWN_3D_START] Current phase: ${currentPhase}`);
+
+      // If phase is space_analysis_complete, need to advance first
+      if (currentPhase === "space_analysis_complete") {
+        console.log("[TOP_DOWN_3D_START] Phase is space_analysis_complete, calling continue-pipeline-step first");
+        const { data: continueData, error: continueError } = await supabase.functions.invoke("continue-pipeline-step", {
+          body: { pipeline_id: pipelineId, from_step: 0, from_phase: "space_analysis_complete" },
+        });
+        if (continueError) {
+          console.error("[TOP_DOWN_3D_START] continue-pipeline-step error:", continueError);
+          throw continueError;
+        }
+        if (continueData?.error) {
+          console.error("[TOP_DOWN_3D_START] continue-pipeline-step returned error:", continueData.error);
+          throw new Error(continueData.error);
+        }
+        console.log("[TOP_DOWN_3D_START] Phase advanced to top_down_3d_pending");
+      }
+
+      // Now run the actual step
       console.log("[TOP_DOWN_3D_START] Invoking run-pipeline-step for Step 1");
-
       const { data, error } = await supabase.functions.invoke("run-pipeline-step", {
-        body: {
-          pipeline_id: pipelineId,
-          step_number: 1,
-          whole_apartment_mode: true
-        },
+        body: { pipeline_id: pipelineId, step_number: 1, whole_apartment_mode: true },
       });
-
       if (error) {
         console.error("[TOP_DOWN_3D_START] Edge function error:", error);
-        console.error("[TOP_DOWN_3D_START] Error details:", {
-          message: error.message,
-          name: error.name,
-          status: (error as any).status,
-          context: (error as any).context,
-          details: (error as any).details,
-        });
-        console.error("[TOP_DOWN_3D_START] Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-        throw new Error(`Step 1 execution failed: ${error.message || "Unknown error"}`);
+        throw error;
       }
-
       if (data?.error) {
         console.error("[TOP_DOWN_3D_START] Backend returned error:", data.error);
-        throw new Error(`Step 1 execution failed: ${data.error}`);
+        throw new Error(data.error);
       }
-
       console.log("[TOP_DOWN_3D_START] ✓ Step 1 started successfully");
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
-      console.log("[TOP_DOWN_3D_START] ✓ Mutation succeeded, pipeline should be running");
+      toast({
+        title: "Step 1 Started",
+        description: "Generating realistic 2D floor plan...",
+      });
     },
     onError: (error) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      console.error("[TOP_DOWN_3D_START] Error:", error);
 
-      // Log full error object for debugging
-      console.error("[TOP_DOWN_3D_START] ❌ Mutation failed:", error);
-      console.error("[TOP_DOWN_3D_START] Error details:", {
-        name: error?.name,
-        message: error?.message,
-        status: (error as any)?.status,
-        context: (error as any)?.context,
-        details: (error as any)?.details,
-      });
-
-      // Extract error code if present
-      const errorResponse = (error as any)?.context?.body;
-      const errorCode = errorResponse?.error_code || "UNKNOWN";
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-
       toast({
         title: "Failed to start Step 1",
-        description: `[${errorCode}] ${errorMessage}`,
+        description: errorMessage,
         variant: "destructive",
-        duration: 10000  // Show for 10 seconds (longer than default)
+        duration: 10000
       });
     },
   });
@@ -650,34 +654,26 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         console.error("[STYLE_START] Backend returned error:", data.error);
         throw new Error(data.error);
       }
+      console.log("[STYLE_START] ✓ Step 2 started successfully");
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      toast({
+        title: "Step 2 Started",
+        description: "Applying style to floor plan...",
+      });
     },
     onError: (error) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      console.error("[STYLE_START] Error:", error);
 
-      // Log full error object for debugging
-      console.error("[STYLE_START] ❌ Mutation failed:", error);
-      console.error("[STYLE_START] Error details:", {
-        name: error?.name,
-        message: error?.message,
-        status: (error as any)?.status,
-        context: (error as any)?.context,
-        details: (error as any)?.details,
-      });
-
-      // Extract error code if present
-      const errorResponse = (error as any)?.context?.body;
-      const errorCode = errorResponse?.error_code || "UNKNOWN";
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-
       toast({
         title: "Failed to start Step 2",
-        description: `[${errorCode}] ${errorMessage}`,
+        description: errorMessage,
         variant: "destructive",
-        duration: 10000  // Show for 10 seconds (longer than default)
+        duration: 10000
       });
     },
   });
@@ -748,12 +744,25 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: ["whole-apartment-spaces", pipelineId] });
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
 
+      toast({
+        title: "Space Detection Complete",
+        description: "Detected spaces from floor plan",
+      });
+
       // Return data for component-level toast handling
       return data;
     },
     onError: (error) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
       console.error("[runDetectSpaces] Error:", error);
+
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      toast({
+        title: "Failed to detect spaces",
+        description: errorMessage,
+        variant: "destructive",
+        duration: 10000
+      });
     },
   });
 

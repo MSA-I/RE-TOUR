@@ -158,9 +158,8 @@ function GlobalStepIndicator({ currentStep }: { currentStep: number }) {
             </div>
             {idx < LOCKED_PIPELINE_DISPLAY.length - 1 && (
               <div
-                className={`w-4 sm:w-8 h-0.5 mx-1 ${
-                  isComplete && !isFuture ? "bg-primary" : "bg-muted"
-                }`}
+                className={`w-4 sm:w-8 h-0.5 mx-1 ${isComplete && !isFuture ? "bg-primary" : "bg-muted"
+                  }`}
               />
             )}
           </div>
@@ -584,7 +583,7 @@ function PipelineSettingsDrawer({
     // Step 4 (internal, spec Step 3): Camera Intent
     camera_intent_pending: 4, camera_intent_confirmed: 4,
     // Legacy camera_plan phases (for migration compatibility)
-    camera_plan_pending: 4, camera_plan_in_progress: 4, camera_plan_confirmed: 4,
+    camera_plan_pending: 4, camera_plan_confirmed: 4,
     // Step 5: Renders
     renders_pending: 5, renders_in_progress: 5, renders_review: 5, renders_approved: 5,
     // Step 6: Panoramas (Capability Slots - Future/Disabled)
@@ -3064,9 +3063,14 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
                       onClick={() => {
                         // Determine which step to retry based on current step
                         const stepToRetry = pipeline.current_step;
-                        if (stepToRetry === 1) {
+                        if (stepToRetry === 0) {
+                          // Step 0: Space Analysis - use run-space-analysis function
+                          runSpaceAnalysis.mutate({ pipelineId: pipeline.id });
+                        } else if (stepToRetry === 1) {
+                          // Step 1: Top-Down 3D - use run-pipeline-step
                           runTopDown3D.mutate({ pipelineId: pipeline.id });
                         } else if (stepToRetry === 2) {
+                          // Step 2: Style Application - use run-pipeline-step
                           const designRefIds = (stepOutputs as Record<string, unknown>)?.design_reference_ids as string[] || [];
                           runStyleTopDown.mutate({ pipelineId: pipeline.id, designRefUploadIds: designRefIds });
                         }

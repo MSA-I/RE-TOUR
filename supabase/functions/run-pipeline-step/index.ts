@@ -1421,6 +1421,11 @@ serve(async (req) => {
     const designReferenceIds = initialOutputs.design_reference_ids || null;
     const referenceStyleAnalysis = initialOutputs.reference_style_analysis || null;
 
+    // Extract current step early - needed for validation logic below
+    const currentStep = pipeline.current_step;
+    const currentPhase = pipeline.whole_apartment_phase ?? "upload";
+
+
     // ═══════════════════════════════════════════════════════════════════════════
     // CRITICAL: Validate Step 1 approval before running Step 2
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1475,8 +1480,8 @@ serve(async (req) => {
       return (data.step_outputs as Record<string, any>) || {};
     };
 
-    const currentStep = pipeline.current_step;
-    const currentPhase = pipeline.whole_apartment_phase ?? "upload";
+    // currentStep and currentPhase are now declared earlier (line ~1425)
+    // to avoid "Cannot access before initialization" error
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PHASE GUARD: Validate this function is allowed for current phase
@@ -3097,6 +3102,9 @@ Transform the visual design style by borrowing from the reference images while p
 
   } catch (error) {
     console.error("[run-pipeline-step] Pipeline step error:", error);
+    console.error("[run-pipeline-step] Error name:", error instanceof Error ? error.name : typeof error);
+    console.error("[run-pipeline-step] Error message:", error instanceof Error ? error.message : String(error));
+    console.error("[run-pipeline-step] Error stack:", error instanceof Error ? error.stack : "No stack trace");
 
     // Try to reset pipeline status back to pending on error
     // Note: pipeline_id is already available in scope from request body parsing
@@ -3127,7 +3135,10 @@ Transform the visual design style by borrowing from the reference images while p
       console.error("[run-pipeline-step] Failed to reset pipeline status:", resetError);
     }
 
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("[run-pipeline-step] Returning 500 with error:", errorMessage);
+
+    return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
