@@ -24,15 +24,13 @@ import {
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-retry, x-retry-user-id",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// API keys loaded at module level (optional, won't crash if undefined)
 const API_NANOBANANA = Deno.env.get("API_NANOBANANA");
-
-// CRITICAL: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are loaded INSIDE serve()
-// to prevent module initialization failures that would break OPTIONS handler
+const API_OPENAI = Deno.env.get("API_OPENAI");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MEMORY OPTIMIZATION CONSTANTS
@@ -61,52 +59,6 @@ function logMemory(label: string): void {
     console.log(`[Memory ${label}] RSS: ${(mem.rss / 1024 / 1024).toFixed(1)}MB, Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(1)}MB`);
   } catch {
     // Deno.memoryUsage may not be available in all environments
-  }
-}
-
-/**
- * Emit a structured error event for pipeline step failures
- * This ensures all errors are logged and visible to the user
- *
- * @param supabase - Supabase admin client
- * @param pipelineId - Pipeline ID
- * @param ownerId - User ID
- * @param stepNumber - Step number (0-7)
- * @param errorCode - Structured error code (e.g., "PHASE_MISMATCH", "AUTH_INVALID")
- * @param errorMessage - Human-readable error description
- */
-async function emitStepError(
-  supabase: any,
-  pipelineId: string,
-  ownerId: string,
-  stepNumber: number,
-  errorCode: string,
-  errorMessage: string
-): Promise<void> {
-  console.error(`[STEP_ERROR:${errorCode}] ${errorMessage}`);
-
-  // Write error event to floorplan_pipeline_events
-  try {
-    await supabase.from("floorplan_pipeline_events").insert({
-      pipeline_id: pipelineId,
-      owner_id: ownerId,
-      step_number: stepNumber,
-      type: "step_error",
-      message: `[${errorCode}] ${errorMessage}`,
-      progress_int: 0
-    });
-  } catch (e) {
-    console.error(`[CRITICAL] Could not write error event:`, e);
-  }
-
-  // Update pipeline.last_error for UI display
-  try {
-    await supabase.from("floorplan_pipelines").update({
-      last_error: `[${errorCode}] ${errorMessage}`,
-      updated_at: new Date().toISOString()
-    }).eq("id", pipelineId);
-  } catch (e) {
-    console.error(`[CRITICAL] Could not update pipeline.last_error:`, e);
   }
 }
 
@@ -1361,33 +1313,13 @@ function selectStep3CameraPreset(
 // ALLOWED PHASES FOR THIS FUNCTION (Steps 1-2 only)
 // ═══════════════════════════════════════════════════════════════════════════
 const ALLOWED_PHASES = [
-  "space_analysis_complete",  // Allow starting Step 1 from completed space analysis
-  "top_down_3d_pending", "top_down_3d_running", "top_down_3d_review",  // Added review phase for re-runs
-  "style_pending", "style_running", "style_review",  // Added review phase for re-runs
+  "top_down_3d_pending", "top_down_3d_running",
+  "style_pending", "style_running",
 ];
 
 serve(async (req) => {
-  // Handle OPTIONS preflight FIRST (before any env var usage)
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,  // Explicit 200 status
-      headers: corsHeaders
-    });
-  }
-
-  // Load critical env vars AFTER OPTIONS handler (prevents init failures)
-  const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-  const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    console.error("[STEP_ERROR:ENV_MISSING] Required environment variables not set");
-    return new Response(JSON.stringify({
-      error: "Server configuration error - missing environment variables",
-      error_code: "ENV_MISSING"
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
-    });
+    return new Response(null, { headers: corsHeaders });
   }
 
   const actionId = crypto.randomUUID();
@@ -1396,14 +1328,7 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      console.error("[STEP_ERROR:AUTH_MISSING] Missing authorization header");
-      return new Response(JSON.stringify({
-        error: "Missing authorization header",
-        error_code: "AUTH_MISSING"
-      }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
+      throw new Error("Missing authorization header");
     }
 
     // Check for internal retry (service-to-service call with service role key)
@@ -1420,14 +1345,7 @@ serve(async (req) => {
         user = { id: retryUserId };
         console.log(`[run-pipeline-step] Internal retry for user ${retryUserId}`);
       } else {
-        console.error("[STEP_ERROR:AUTH_INVALID] Unauthorized: Invalid service role key for internal retry");
-        return new Response(JSON.stringify({
-          error: "Unauthorized: Invalid service role key for internal retry",
-          error_code: "AUTH_INVALID"
-        }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+        throw new Error("Unauthorized: Invalid service role key for internal retry");
       }
     } else {
       // Normal user request - validate JWT
@@ -1438,67 +1356,19 @@ serve(async (req) => {
       );
       const { data: authData, error: userError } = await supabaseUser.auth.getUser();
       if (userError || !authData?.user) {
-        console.error("[STEP_ERROR:AUTH_INVALID] JWT validation failed:", userError);
-        return new Response(JSON.stringify({
-          error: "Unauthorized",
-          error_code: "AUTH_INVALID"
-        }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+        throw new Error("Unauthorized");
       }
       user = authData.user;
     }
 
     if (!user) {
-      console.error("[STEP_ERROR:AUTH_INVALID] User validation failed - user is null");
-      return new Response(JSON.stringify({
-        error: "Unauthorized",
-        error_code: "AUTH_INVALID"
-      }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
+      throw new Error("Unauthorized");
     }
 
-    const { pipeline_id, step_number, whole_apartment_mode, camera_position, forward_direction, design_ref_upload_ids, style_title, output_count, auto_rerender_attempt, step_3_preset_id, step_3_custom_prompt } = await req.json();
+    const { pipeline_id, camera_position, forward_direction, design_ref_upload_ids, style_title, output_count, auto_rerender_attempt, step_3_preset_id, step_3_custom_prompt } = await req.json();
 
     if (!pipeline_id) {
-      console.error("[STEP_ERROR:INVALID_REQUEST] pipeline_id is required");
-      return new Response(JSON.stringify({
-        error: "pipeline_id is required",
-        error_code: "INVALID_REQUEST"
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // STEP_START: Log every invocation for diagnostic purposes
-    // ═══════════════════════════════════════════════════════════════════════════
-    console.log(`[STEP_START] Function invoked`, {
-      action_id: actionId,
-      pipeline_id: pipeline_id,
-      step_number: step_number,
-      whole_apartment_mode: whole_apartment_mode,
-      user_id: user.id,
-      timestamp: new Date().toISOString()
-    });
-
-    // Emit invocation event (before any logic) - proves edge function was reached
-    try {
-      await supabaseAdmin.from("floorplan_pipeline_events").insert({
-        pipeline_id: pipeline_id,
-        owner_id: user.id,
-        step_number: step_number ?? 0,
-        type: "function_invoked",
-        message: `Edge function run-pipeline-step invoked for step ${step_number ?? "auto"}`,
-        progress_int: 0
-      });
-    } catch (eventError) {
-      console.error(`[STEP_ERROR:EVENT_INSERT_FAILED] Could not write invocation event:`, eventError);
-      // Continue anyway - don't fail the entire request due to event logging failure
+      throw new Error("pipeline_id is required");
     }
 
     // Style title for Step 2 (human-readable name from suggestion selection)
@@ -1535,11 +1405,6 @@ serve(async (req) => {
       .eq("id", pipeline_id)
       .eq("owner_id", user.id)
       .single();
-
-    if (pipelineError || !pipelineData) {
-      console.error(`[RUN_PIPELINE_STEP] Failed to load pipeline: ${pipelineError?.message || 'No data'}`);
-      throw new Error(`Failed to load pipeline: ${pipelineError?.message || 'Pipeline not found'}`);
-    }
 
     const pipeline = pipelineData as any;
 
@@ -1594,22 +1459,7 @@ serve(async (req) => {
     delete pipeline.step_outputs;
 
     if (pipelineError || !pipeline) {
-      await emitStepError(
-        supabaseAdmin,
-        pipeline_id,
-        user.id,
-        step_number ?? 0,
-        "PIPELINE_NOT_FOUND",
-        `Pipeline ${pipeline_id} not found or access denied`
-      );
-      return new Response(JSON.stringify({
-        error: "Pipeline not found",
-        error_code: "PIPELINE_NOT_FOUND",
-        action_id: actionId,
-      }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
+      throw new Error("Pipeline not found");
     }
 
     // Helper: fetch full step_outputs ONLY when we must do a read-modify-write persistence.
@@ -1625,12 +1475,8 @@ serve(async (req) => {
       return (data.step_outputs as Record<string, any>) || {};
     };
 
-    // Use step_number from request body if provided (for explicit step invocation),
-    // otherwise fall back to pipeline.current_step
-    console.log(`[RUN_PIPELINE_STEP] Request step_number: ${step_number}, Pipeline current_step: ${pipeline.current_step}`);
-    const currentStep = step_number ?? pipeline.current_step;
+    const currentStep = pipeline.current_step;
     const currentPhase = pipeline.whole_apartment_phase ?? "upload";
-    console.log(`[RUN_PIPELINE_STEP] Resolved currentStep: ${currentStep}, currentPhase: ${currentPhase}`);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PHASE GUARD: Validate this function is allowed for current phase
@@ -1639,19 +1485,10 @@ serve(async (req) => {
 
     // Step 0 (Space Analysis) is handled by run-space-analysis, NOT this function
     if (currentStep === 0) {
-      await emitStepError(
-        supabaseAdmin,
-        pipeline_id,
-        user.id,
-        currentStep,
-        "STEP0_ROUTER_ERROR",
-        `Step 0 should use run-space-analysis function, not run-pipeline-step. Current phase: "${currentPhase}"`
-      );
-
+      console.error(`[RUN_PIPELINE_STEP] Phase mismatch: Step 0 should use run-space-analysis`);
       return new Response(
         JSON.stringify({
           error: "Step 0 (Space Analysis) should use run-space-analysis function, not run-pipeline-step. Please check frontend call routing.",
-          error_code: "STEP0_ROUTER_ERROR",
           hint: "Frontend routing should detect phase 'upload' or 'space_analysis_*' and route to run-space-analysis",
           current_phase: currentPhase,
           action_id: actionId,
@@ -1662,6 +1499,8 @@ serve(async (req) => {
 
     // Strict phase validation for Steps 1-2 only
     if (!ALLOWED_PHASES.includes(currentPhase)) {
+      console.error(`[RUN_PIPELINE_STEP] Phase mismatch: expected one of [${ALLOWED_PHASES.join(", ")}], got "${currentPhase}"`);
+
       // Provide helpful hints based on the actual phase
       let hint = "Check frontend routing configuration";
       if (currentPhase.startsWith("space_analysis") || currentPhase === "upload") {
@@ -1672,19 +1511,9 @@ serve(async (req) => {
         hint = "This phase should use run-batch-space-renders, run-batch-space-panoramas, or run-batch-space-merges";
       }
 
-      await emitStepError(
-        supabaseAdmin,
-        pipeline_id,
-        user.id,
-        currentStep,
-        "PHASE_MISMATCH",
-        `Cannot run Step ${currentStep} in phase "${currentPhase}". Expected: ${ALLOWED_PHASES.join(", ")}`
-      );
-
       return new Response(
         JSON.stringify({
           error: `Phase mismatch: run-pipeline-step handles Steps 1-2 only, but pipeline is at phase "${currentPhase}"`,
-          error_code: "PHASE_MISMATCH",
           hint,
           expected_phases: ALLOWED_PHASES,
           current_phase: currentPhase,
@@ -1749,10 +1578,9 @@ serve(async (req) => {
 
     console.log(`[${actionName}] Setting whole_apartment_phase to: ${runningPhase}`);
 
-    const { error: updateError } = await supabaseAdmin
+    await supabaseAdmin
       .from("floorplan_pipelines")
       .update({
-        current_step: currentStep,
         status: `step${currentStep}_running`,
         whole_apartment_phase: runningPhase,
         camera_position: effectiveCameraPosition || pipeline.camera_position,
@@ -1761,25 +1589,6 @@ serve(async (req) => {
       })
       .eq("id", pipeline_id);
 
-    if (updateError) {
-      await emitStepError(
-        supabaseAdmin,
-        pipeline_id,
-        user.id,
-        currentStep,
-        "DB_UPDATE_ERROR",
-        `Failed to update pipeline status: ${updateError.message}`
-      );
-      return new Response(JSON.stringify({
-        error: `Failed to update pipeline status: ${updateError.message}`,
-        error_code: "DB_UPDATE_ERROR",
-        action_id: actionId,
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
     await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "step_start", `Step ${currentStep} started (phase: ${runningPhase})`, (currentStep - 1) * 25);
 
     // Get input image (floor plan for step 1, previous step output for others)
@@ -1787,27 +1596,6 @@ serve(async (req) => {
     if (currentStep === 1) {
       // Step 1 (Top-Down 3D) uses the floor plan as input
       inputUploadId = pipeline.floor_plan_upload_id;
-
-      // ============= VALIDATE INPUT IMAGE EXISTS =============
-      if (!inputUploadId) {
-        await emitStepError(
-          supabaseAdmin,
-          pipeline_id,
-          user.id,
-          1,
-          "INPUT_IMAGE_MISSING",
-          "floor_plan_upload_id is null - cannot run Step 1"
-        );
-        return new Response(JSON.stringify({
-          error: "Floor plan upload is missing - cannot run Step 1",
-          error_code: "INPUT_IMAGE_MISSING",
-          action_id: actionId,
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
       console.log(`[run-pipeline-step] Step 1: Using floor plan upload ${inputUploadId}`);
     } else {
       // For step 2+, get the previous completed step's output
@@ -2046,21 +1834,58 @@ OUTPUT: High-quality professional EYE-LEVEL interior photograph.`;
       }
     } else if (currentStep === 1) {
       // ═══════════════════════════════════════════════════════════════
-      // STEP 1: Dimension extraction (OpenAI-based feature removed)
+      // STEP 1: Extract dimensions AND wall geometry from floor plan BEFORE generating
       // ═══════════════════════════════════════════════════════════════
-      // Note: Dimension and geometry extraction via OpenAI has been removed.
-      // System now relies on visual proportions and Gemini's spatial understanding.
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "no_dimensions",
-        "No dimension annotations - using visual proportions", (currentStep - 1) * 25 + 7);
-      console.log(`[Step 1] Using visual proportions (dimension extraction via OpenAI removed)`);
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "dimension_extraction", "Analyzing floor plan for dimensions and wall geometry...", (currentStep - 1) * 25 + 6);
 
-      const dimensionAnalysis: DimensionAnalysisResult = {
-        dimensions_found: false,
-        units: "unknown",
-        extracted_dimensions: [],
-        scale_guidance_text: buildScaleGuidanceBlock({ dimensions_found: false, units: "unknown", extracted_dimensions: [], scale_guidance_text: "", scale_locked: false }),
-        scale_locked: false
-      };
+      let dimensionAnalysis: DimensionAnalysisResult;
+      if (API_OPENAI) {
+        dimensionAnalysis = await extractDimensionsAndGeometryFromFloorPlan(base64Image, API_OPENAI);
+
+        // Store dimension analysis in pipeline for use by later steps
+        const stepOutputs = await fetchFullStepOutputs();
+        stepOutputs.dimension_analysis = dimensionAnalysis;
+
+        await supabaseAdmin
+          .from("floorplan_pipelines")
+          .update({ step_outputs: stepOutputs })
+          .eq("id", pipeline_id);
+
+        if (dimensionAnalysis.dimensions_found) {
+          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "dimensions_found",
+            `Found ${dimensionAnalysis.extracted_dimensions.length} dimension(s) - scale locked`, (currentStep - 1) * 25 + 7);
+          console.log(`[Step 1] SCALE LOCKED from ${dimensionAnalysis.extracted_dimensions.length} dimensions`);
+        } else {
+          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "no_dimensions",
+            "No dimension annotations found - using visual proportions", (currentStep - 1) * 25 + 7);
+          console.log(`[Step 1] No dimensions found - relying on visual proportions`);
+        }
+
+        // Report wall geometry detection
+        const geo = dimensionAnalysis.wall_geometry;
+        if (geo && (geo.has_non_orthogonal_walls || geo.has_curved_walls || geo.has_diagonal_corners || geo.has_chamfers)) {
+          const geoTypes: string[] = [];
+          if (geo.has_non_orthogonal_walls) geoTypes.push("angled walls");
+          if (geo.has_curved_walls) geoTypes.push("curved walls");
+          if (geo.has_diagonal_corners) geoTypes.push("diagonal corners");
+          if (geo.has_chamfers) geoTypes.push("chamfers");
+
+          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "geometry_detected",
+            `Non-standard geometry detected: ${geoTypes.join(", ")} - geometry locked`, (currentStep - 1) * 25 + 8);
+          console.log(`[Step 1] GEOMETRY LOCKED: ${geoTypes.join(", ")}`);
+        } else {
+          console.log(`[Step 1] Standard orthogonal geometry detected`);
+        }
+      } else {
+        console.warn(`[Step 1] API_OPENAI not configured - skipping dimension and geometry extraction`);
+        dimensionAnalysis = {
+          dimensions_found: false,
+          units: "unknown",
+          extracted_dimensions: [],
+          scale_guidance_text: buildScaleGuidanceBlock({ dimensions_found: false, units: "unknown", extracted_dimensions: [], scale_guidance_text: "", scale_locked: false }),
+          scale_locked: false
+        };
+      }
 
       // Get space analysis for furniture constraints (use pre-extracted variable)
       const currentSpaceAnalysis = (spaceAnalysis as SpaceAnalysisData) || null;
@@ -2707,22 +2532,7 @@ Transform the visual design style by borrowing from the reference images while p
     // Check if we generated any outputs
     if (generatedOutputs.length === 0) {
       const errorMsg = lastApiError || "Failed to generate any outputs";
-      await emitStepError(
-        supabaseAdmin,
-        pipeline_id,
-        user.id,
-        currentStep,
-        "AI_API_ERROR",
-        `Image generation failed: ${errorMsg}`
-      );
-      return new Response(JSON.stringify({
-        error: errorMsg,
-        error_code: "AI_API_ERROR",
-        action_id: actionId,
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
+      throw new Error(errorMsg);
     }
 
     await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "generation_complete",
@@ -3240,22 +3050,8 @@ Transform the visual design style by borrowing from the reference images while p
     // to render the review panel (Approve/Reject). We must fail loudly so the catch
     // handler can reset state and persist last_error.
     if (updateError) {
-      await emitStepError(
-        supabaseAdmin,
-        pipeline_id,
-        user.id,
-        currentStep,
-        "DB_UPDATE_ERROR",
-        `Failed to persist final pipeline update: ${updateError.message}`
-      );
-      return new Response(JSON.stringify({
-        error: `Failed to persist pipeline update: ${updateError.message}`,
-        error_code: "DB_UPDATE_ERROR",
-        action_id: actionId,
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
+      console.error("[run-pipeline-step] Failed to persist pipeline update:", updateError);
+      throw new Error(`Failed to persist pipeline update: ${updateError.message}`);
     }
 
     const isAwaitingApproval = overallQaDecision !== "rejected";
@@ -3302,7 +3098,7 @@ Transform the visual design style by borrowing from the reference images while p
   } catch (error) {
     console.error("[run-pipeline-step] Pipeline step error:", error);
 
-    // Try to reset pipeline status and emit error event
+    // Try to reset pipeline status back to pending on error
     // Note: pipeline_id is already available in scope from request body parsing
     try {
       // Don't use req.clone() - body was already consumed by req.json() earlier
@@ -3311,49 +3107,27 @@ Transform the visual design style by borrowing from the reference images while p
         const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
         const { data: pipeline } = await supabaseAdmin
           .from("floorplan_pipelines")
-          .select("current_step, status, owner_id")
+          .select("current_step, status")
           .eq("id", pipeline_id)
           .maybeSingle();
 
-        if (pipeline) {
-          const errorMessage = error instanceof Error ? error.message : "Unknown error";
-
-          // Emit step_error event if we have pipeline context
-          try {
-            await supabaseAdmin.from("floorplan_pipeline_events").insert({
-              pipeline_id: pipeline_id,
-              owner_id: pipeline.owner_id,
-              step_number: pipeline.current_step ?? 0,
-              type: "step_error",
-              message: `[UNHANDLED_ERROR] ${errorMessage}`,
-              progress_int: 0
-            });
-          } catch (eventError) {
-            console.error("[CRITICAL] Could not write error event:", eventError);
-          }
-
-          // Reset status if pipeline is running
-          if (pipeline.status?.includes("running")) {
-            await supabaseAdmin
-              .from("floorplan_pipelines")
-              .update({
-                status: `step${pipeline.current_step}_pending`,
-                last_error: `[UNHANDLED_ERROR] ${errorMessage}`,
-                updated_at: new Date().toISOString()
-              })
-              .eq("id", pipeline_id);
-            console.log(`[run-pipeline-step] Reset pipeline ${pipeline_id} to step${pipeline.current_step}_pending`);
-          }
+        if (pipeline && pipeline.status?.includes("running")) {
+          await supabaseAdmin
+            .from("floorplan_pipelines")
+            .update({
+              status: `step${pipeline.current_step}_pending`,
+              last_error: error instanceof Error ? error.message : "Unknown error",
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", pipeline_id);
+          console.log(`[run-pipeline-step] Reset pipeline ${pipeline_id} to step${pipeline.current_step}_pending`);
         }
       }
     } catch (resetError) {
       console.error("[run-pipeline-step] Failed to reset pipeline status:", resetError);
     }
 
-    return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : "Unknown error",
-      error_code: "UNHANDLED_ERROR"
-    }), {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
@@ -3946,10 +3720,24 @@ Examples:
 Respond with ONLY valid JSON: {"decision": "approved" or "rejected", "reason": "brief explanation"}`;
     }
 
-    // OpenAI-based QA has been removed - system now uses Gemini for QA
-    // This function is deprecated and returns a default rejection
-    console.log(`[QA EXECUTION] OpenAI-based QA removed - returning default rejection`);
-    return { decision: "rejected", reason: "OpenAI QA deprecated - use Gemini-based QA", qa_executed: false };
+    if (!API_OPENAI) {
+      console.warn(`[QA EXECUTION] API_OPENAI not configured - QA cannot run`);
+      return { decision: "rejected", reason: "QA could not run (missing API key)", qa_executed: false };
+    }
+
+    const inputUrl = input.signedUrl || (input.base64 ? `data:image/jpeg;base64,${input.base64}` : null);
+    const outputUrl = output.signedUrl || (output.base64 ? `data:image/png;base64,${output.base64}` : null);
+
+    if (!inputUrl || !outputUrl) {
+      return { decision: "rejected", reason: "QA missing input/output image", qa_executed: false };
+    }
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${API_OPENAI}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         model: "gpt-4o",
         temperature: 0,
