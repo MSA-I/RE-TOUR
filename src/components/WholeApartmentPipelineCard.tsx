@@ -1,5 +1,5 @@
 import { useState, memo, useMemo, useCallback, useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,10 +31,9 @@ import { StageApprovalGate } from "@/components/whole-apartment/StageApprovalGat
 import { StepRetryStatusIndicator, StepRetryState } from "@/components/whole-apartment/StepRetryStatusIndicator";
 // CameraPlanningEditor removed - replaced with CameraIntentSelector (Templates A-H)
 import { CameraIntentSelector } from "@/components/whole-apartment/CameraIntentSelector";
+import { Step4SelectionPanel } from "@/components/whole-apartment/Step4SelectionPanel";
 import { StopResetStepButton } from "@/components/whole-apartment/StopResetStepButton";
 import { StepControlsFooter } from "@/components/whole-apartment/StepControlsFooter";
-import { Step2OutputsPanel } from "@/components/whole-apartment/Step2OutputsPanel";
-import { useStepAttempts } from "@/hooks/useStepAttempts";
 
 import { SpaceGraphSummary } from "@/components/whole-apartment/SpaceGraphSummary";
 import { PipelineDebugPanel } from "@/components/whole-apartment/PipelineDebugPanel";
@@ -736,8 +735,6 @@ function GlobalStepsSection({
   onContinueToStep,
   isResetPending,
   isRollbackPending,
-  step2Attempts,
-  isLoadingStep2Attempts,
 }: {
   pipeline: FloorplanPipeline;
   imagePreviews: Record<string, string>;
@@ -764,8 +761,6 @@ function GlobalStepsSection({
   onContinueToStep: (fromStep: number, fromPhase: string) => void;
   isResetPending?: boolean;
   isRollbackPending?: boolean;
-  step2Attempts?: any[];
-  isLoadingStep2Attempts?: boolean;
 }) {
   const { getSignedViewUrl } = useStorage();
   const { spatialMap, isLoading: spatialMapLoading, error: spatialMapError, runSpatialDecomposition } = useSpatialMap(pipeline.id);
@@ -884,6 +879,8 @@ function GlobalStepsSection({
 
   // Step 1: Top-Down 3D - check both upload_id and output_upload_id
   const step1UploadId = step1Output?.upload_id || step1Output?.output_upload_id;
+  // CRITICAL: For Step 2's "before" image, only use Step 1 output if manually approved
+  const step1UploadIdForStep2 = step1ManualApproved ? step1UploadId : null;
   const step1Running = phase === "top_down_3d_running";
 
   // RESILIENT Step1 review detection:
@@ -1498,14 +1495,32 @@ function GlobalStepsSection({
           />
         )}
 
+        {/* Step 2 Blocked: Step 1 Not Approved */}
+        {step2HasOutput && !step1ManualApproved && !step2Blocked && (
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="py-6">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Step 1 Must Be Approved Before Step 2</p>
+                  <p className="text-sm text-muted-foreground">
+                    Step 2 requires an approved Step 1 output as its "before" image.
+                    Please review and approve Step 1 above before proceeding to Step 2.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Step 2 Review Panel with Before/After - ALWAYS show when output exists and needs review */}
-        {step2Asset && !step2Blocked && (step2Review || step2Done || (manualQAEnabled && step2HasOutput && !step2ManualApproved && step1Done)) && (
+        {step2Asset && !step2Blocked && step1ManualApproved && (step2Review || step2Done || (manualQAEnabled && step2HasOutput && !step2ManualApproved && step1Done)) && (
           <div className="space-y-2">
             <StageReviewPanel
               title="Style Top-Down"
               stepNumber={2}
               currentStep={currentStep}
-              beforeUploadId={step1UploadId || null}
+              beforeUploadId={step1UploadIdForStep2 || null}
               beforeLabel="Unstyled"
               afterAsset={{
                 ...step2Asset,
@@ -1524,25 +1539,13 @@ function GlobalStepsSection({
               }}
               onContinue={step2Done && phase === "style_review" ? () => {
                 onAction("continue", { fromStep: 2, toStep: 3 });
-                // Trigger phase transition from style_review → detect_spaces_pending (SWAPPED)
+                // Trigger phase transition from style_review → camera_intent_pending
                 onContinueToStep(2, "style_review");
               } : undefined}
-              continueLabel="Continue to Detect Spaces"
+              continueLabel="Continue to Camera Intent"
               isLoading={isRunning}
               bucket="outputs"
             />
-
-            {/* Attempt History Panel - Read-only (QA controls in StageReviewPanel above) */}
-            {step2Attempts && step2Attempts.length > 0 && (
-              <div className="mt-4">
-                <Step2OutputsPanel
-                  pipelineId={pipeline.id}
-                  projectId={pipeline.project_id}
-                  attempts={step2Attempts}
-                  isLoading={isLoadingStep2Attempts}
-                />
-              </div>
-            )}
 
             {/* Step 2 Controls Footer (Reset + Back to Step 1) */}
             <StepControlsFooter
@@ -1581,13 +1584,13 @@ function GlobalStepsSection({
                   size="sm"
                   onClick={() => {
                     onAction("continue", { fromStep: 2, toStep: 3 });
-                    // Trigger phase transition from style_review → detect_spaces_pending (SWAPPED)
+                    // Trigger phase transition from style_review → camera_intent_pending
                     onContinueToStep(2, "style_review");
                   }}
                   disabled={isRunning || approvalLocked}
                 >
                   <ChevronRight className="w-4 h-4 mr-1" />
-                  Continue to Detect Spaces
+                  Continue to Camera Intent
                 </Button>
               ) : (
                 <Badge className="bg-primary/20 text-primary">
@@ -1701,8 +1704,8 @@ function GlobalStepsSection({
                   </Button>
                 )}
 
-                {/* PENDING STATE: Normal Generate button */}
-                {step3Pending && !step3Running && !step3Failed && (
+                {/* PENDING STATE: Normal Generate button - HIDDEN (automatic in Step 0.2) */}
+                {false && step3Pending && !step3Running && !step3Failed && (
                   <Button
                     size="sm"
                     onClick={() => {
@@ -1908,6 +1911,92 @@ function GlobalStepsSection({
           );
         })()}
 
+        {/* Step 4: Selection + Execution (Spec: Generate Prompts + Trigger Renders) */}
+        {(phase === "camera_plan_confirmed" || phase === "camera_intent_confirmed" || phase === "renders_pending") && (() => {
+          const isCameraConfirmed = phase === "camera_plan_confirmed" || phase === "camera_intent_confirmed";
+          const isRendersPending = phase === "renders_pending";
+          const hasPrompts = isRendersPending || (spaces && spaces.some(s => s.renders && s.renders.length > 0));
+
+          return (
+            <div className="space-y-3">
+              <div className={cn(
+                "p-3 rounded-lg border",
+                isRendersPending
+                  ? "border-primary/30 bg-primary/5"
+                  : "border-border/50 bg-card/50"
+              )}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Camera className="w-5 h-5 text-primary" />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">Step 4: Selection + Execution</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Generate prompts and trigger batch rendering
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {hasPrompts ? (
+                      <Badge className="bg-green-500/20 text-green-600">
+                        <Check className="w-3 h-3 mr-1" />
+                        Prompts Ready
+                      </Badge>
+                    ) : (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => setStep4PanelOpen(true)}
+                        disabled={isRunning || approvalLocked}
+                      >
+                        <Camera className="w-4 h-4 mr-2" />
+                        Configure Renders
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 4 Selection Panel Modal */}
+              {step4PanelOpen && (
+                <Dialog open={step4PanelOpen} onOpenChange={setStep4PanelOpen}>
+                  <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Step 4: Selection + Execution</DialogTitle>
+                      <DialogDescription>
+                        Select camera intents to render and generate prompts for image generation.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Step4SelectionPanel
+                      pipelineId={pipeline.id}
+                      cameraIntents={cameraIntents}
+                      onGeneratePrompts={handleGeneratePrompts}
+                      onGenerateImages={handleGenerateImages}
+                      isGeneratingPrompts={isGeneratingPrompts}
+                      isGeneratingImages={isGeneratingImages}
+                      hasPrompts={hasPrompts}
+                      disabled={isRunning || approvalLocked}
+                    />
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* Step Controls Footer (Reset + Back) */}
+              <StepControlsFooter
+                stepNumber={4}
+                stepName="Selection + Execution"
+                isRunning={isGeneratingPrompts || isGeneratingImages}
+                isResetPending={restartStep.isPending}
+                isRollbackPending={rollbackToPreviousStep.isPending}
+                onReset={(stepNum) => restartStep.mutate({ pipelineId: pipeline.id, stepNumber: stepNum })}
+                onRollback={(stepNum) => rollbackToPreviousStep.mutate({ pipelineId: pipeline.id, targetStepNumber: stepNum })}
+                disabled={isRunning || approvalLocked}
+              />
+            </div>
+          );
+        })()}
+
         {/* ═══════════ CAPABILITY SLOTS - DISABLED PENDING MARBLE ═══════════ */}
         {/* Step 6 (Internal): Capability Slots (Future/Disabled) */}
         {/* This is the OLD manual camera planning feature, now disabled pending MARBLE engine */}
@@ -2018,6 +2107,10 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   const [renderingSpaceId, setRenderingSpaceId] = useState<string | null>(null);
   // Step 0.1: Design Reference Scan state
   const [isRunningDesignRefScan, setIsRunningDesignRefScan] = useState(false);
+  // Step 4: Camera Intent Selection state
+  const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
+  const [isGeneratingImages, setIsGeneratingImages] = useState(false);
+  const [step4PanelOpen, setStep4PanelOpen] = useState(false);
 
   const {
     spaces: pipelineSpaces,
@@ -2075,14 +2168,28 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   // Available reference images for per-space selection (Step 4+ approved outputs)
   const { data: availableReferenceImages = [] } = useAvailableReferenceImages(pipeline.id);
 
-  // Fetch Step 2 attempts for detailed QA review
-  const { data: step2Attempts, isLoading: isLoadingStep2Attempts } = useStepAttempts({
-    pipelineId: pipeline.id,
-    stepNumber: 2,
-    enabled: pipeline.current_step >= 2, // Only fetch when Step 2 has started
-  });
-
   const spaces = pipelineSpaces || [];
+
+  // Query: Fetch camera intents for Step 4
+  const { data: cameraIntents = [], refetch: refetchCameraIntents } = useQuery({
+    queryKey: ["camera-intents", pipeline.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("camera_intents_with_spaces")
+        .select("*")
+        .eq("pipeline_id", pipeline.id)
+        .order("generation_order");
+
+      if (error) {
+        console.error("[camera-intents] Query error:", error);
+        return [];
+      }
+
+      return data || [];
+    },
+    enabled: !!pipeline.id,
+    staleTime: 5000,
+  });
 
   // Realtime subscription for pipeline changes (phase, step, step_outputs)
   // to immediately reflect approval/rejection without manual refresh
@@ -2215,6 +2322,99 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
     }
   }, [pipeline.id, pipeline.step_outputs, toast, queryClient]);
 
+  // Step 4: Generate Prompts handler
+  const handleGeneratePrompts = useCallback(async (selectedIntentIds: string[]) => {
+    setIsGeneratingPrompts(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch('/functions/v1/generate-camera-prompts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          pipeline_id: pipeline.id,
+          camera_intent_ids: selectedIntentIds,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate prompts');
+      }
+
+      const result = await response.json();
+
+      toast.toast({
+        title: "Prompts Generated",
+        description: `Generated ${result.prompts_generated} prompt(s) successfully.`,
+      });
+
+      // Refresh camera intents and pipeline data
+      refetchCameraIntents();
+      queryClient.invalidateQueries(['floorplan-pipeline', pipeline.id]);
+
+    } catch (error) {
+      console.error('[handleGeneratePrompts] Error:', error);
+      toast.toast({
+        title: 'Generation Failed',
+        description: error instanceof Error ? error.message : 'Failed to generate prompts',
+        variant: 'destructive',
+      });
+      throw error;
+    } finally {
+      setIsGeneratingPrompts(false);
+    }
+  }, [pipeline.id, toast, queryClient, refetchCameraIntents]);
+
+  // Step 4: Generate Images handler
+  const handleGenerateImages = useCallback(async () => {
+    setIsGeneratingImages(true);
+    try {
+      if (!styledImageUploadId) {
+        throw new Error('Step 2 output not found. Please complete Style Application first.');
+      }
+
+      runBatchRenders.mutate(
+        {
+          pipelineId: pipeline.id,
+          styledImageUploadId: styledImageUploadId,
+        },
+        {
+          onSuccess: () => {
+            toast.toast({
+              title: "Batch Rendering Started",
+              description: "Images are being generated for selected camera intents.",
+            });
+            setStep4PanelOpen(false);
+            setTerminalOpen(true);
+          },
+          onError: (error) => {
+            toast.toast({
+              title: 'Generation Failed',
+              description: error instanceof Error ? error.message : 'Failed to start batch rendering',
+              variant: 'destructive',
+            });
+          },
+          onSettled: () => {
+            setIsGeneratingImages(false);
+          }
+        }
+      );
+    } catch (error) {
+      console.error('[handleGenerateImages] Error:', error);
+      toast.toast({
+        title: 'Generation Failed',
+        description: error instanceof Error ? error.message : 'Failed to start image generation',
+        variant: 'destructive',
+      });
+      setIsGeneratingImages(false);
+      throw error;
+    }
+  }, [pipeline.id, styledImageUploadId, runBatchRenders, toast]);
+
   const handleRunTopDown = useCallback(() => {
     runTopDown3D.mutate({ pipelineId: pipeline.id });
   }, [runTopDown3D, pipeline.id]);
@@ -2299,7 +2499,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
     // Persist manual approval + unlock next step.
     const nextPhaseMap: Record<number, string> = {
       1: "style_pending",
-      2: "detect_spaces_pending",
+      2: "camera_intent_pending", // Go directly to Camera Intent (Step 3 in spec)
     };
     const nextPhase = nextPhaseMap[step];
 
@@ -2968,8 +3168,6 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
                 }}
                 isResetPending={restartStep.isPending}
                 isRollbackPending={rollbackToPreviousStep.isPending}
-                step2Attempts={step2Attempts}
-                isLoadingStep2Attempts={isLoadingStep2Attempts}
                 onContinueToStep={async (fromStep, fromPhase) => {
                   try {
                     // Defensive: avoid firing a transition from stale UI state.
