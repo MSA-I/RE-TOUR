@@ -115,8 +115,17 @@ function Step2DesignReferencesComponent({
 
     try {
       for (const file of filesToUpload) {
-        const path = `${user.id}/${projectId}/design_ref_${pipelineId}_${Date.now()}_${file.name}`;
-        
+        // Sanitize filename: remove non-ASCII characters and special chars
+        const sanitizedName = file.name
+          .normalize("NFD") // Decompose accented characters
+          .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
+          .replace(/[^\x00-\x7F]/g, "") // Remove non-ASCII characters
+          .replace(/[^a-zA-Z0-9._-]/g, "_") // Replace unsafe chars with underscore
+          .replace(/_+/g, "_") // Collapse multiple underscores
+          .replace(/^_|_$/g, ""); // Trim leading/trailing underscores
+
+        const path = `${user.id}/${projectId}/design_ref_${pipelineId}_${Date.now()}_${sanitizedName}`;
+
         // Upload file
         await uploadFile("design_refs", path, file);
         
