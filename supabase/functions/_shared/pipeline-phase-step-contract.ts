@@ -53,42 +53,46 @@ export const PHASE_STEP_CONTRACT: Record<string, number> = {
   "space_analysis_pending": 0,
   "space_analysis_running": 0,
   "space_analysis_complete": 0,
-  
+
   // Step 1: Top-Down 3D
   "top_down_3d_pending": 1,
   "top_down_3d_running": 1,
   "top_down_3d_review": 1,
-  
+
   // Step 2: Style
   "style_pending": 2,
   "style_running": 2,
   "style_review": 2,
-  
-  // Step 3: Detect Spaces (SWAPPED - was Step 4)
+
+  // Step 3: Detect Spaces (Spec 0.2)
   "detect_spaces_pending": 3,
   "detecting_spaces": 3,
   "spaces_detected": 3,
-  
-  // Step 4: Camera Planning (SWAPPED - was Step 3)
-  "camera_plan_pending": 4,
-  "camera_plan_confirmed": 4,
-  
-  // Step 5: Renders
-  "renders_pending": 5,
-  "renders_in_progress": 5,
-  "renders_review": 5,
-  
-  // Step 6: Panoramas
-  "panoramas_pending": 6,
-  "panoramas_in_progress": 6,
-  "panoramas_review": 6,
-  
-  // Step 7: Merge
-  "merging_pending": 7,
-  "merging_in_progress": 7,
-  "merging_review": 7,
-  "completed": 7,
-  
+
+  // Step 4: Camera Intent (Spec 3 - Decision Only)
+  "camera_intent_pending": 4,
+  "camera_intent_confirmed": 4,
+
+  // Step 5: Prompt Templates (Spec 4)
+  "prompt_templates_pending": 5,
+  "prompt_templates_confirmed": 5,
+
+  // Step 6: Outputs + QA (Spec 5)
+  "outputs_pending": 6,
+  "outputs_in_progress": 6,
+  "outputs_review": 6,
+
+  // Step 7: Panoramas
+  "panoramas_pending": 7,
+  "panoramas_in_progress": 7,
+  "panoramas_review": 7,
+
+  // Step 8: Merge/Completion
+  "merging_pending": 8,
+  "merging_in_progress": 8,
+  "merging_review": 8,
+  "completed": 8,
+
   // Terminal/Error
   "failed": 0,
 };
@@ -109,17 +113,18 @@ export const LEGAL_PHASE_TRANSITIONS: Record<string, string> = {
   "space_analysis_complete": "top_down_3d_pending",
   // Step 1 → Step 2
   "top_down_3d_review": "style_pending",
-  // Step 2 → Step 3 (Detect Spaces) ← CHANGED
+  // Step 2 → Step 3 (Space Scan)
   "style_review": "detect_spaces_pending",
-  // Step 3 → Step 4 (Camera Planning) ← CHANGED
-  "spaces_detected": "camera_plan_pending",
-  // Step 4 → Step 5 (Renders) ← CHANGED
-  "camera_plan_confirmed": "renders_pending",
-  // Step 5 → Step 6
-  "renders_review": "panoramas_pending",
-  // Step 6 → Step 7
+  // Step 3 → Step 4 (Camera Intent)
+  "spaces_detected": "camera_intent_pending",
+  // Step 4 → Step 5 (Prompt Templates)
+  "camera_intent_confirmed": "prompt_templates_pending",
+  // Step 5 → Step 6 (Outputs)
+  "prompt_templates_confirmed": "outputs_pending",
+  // Step 6 → Step 7 (Panoramas)
+  "outputs_review": "panoramas_pending",
+  // Step 7 → Step 8 (Final Approval)
   "panoramas_review": "merging_pending",
-  // Step 7 → Complete
   "merging_review": "completed",
 };
 

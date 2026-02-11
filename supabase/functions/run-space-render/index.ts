@@ -2,14 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { encodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 import { buildCameraContext, CameraMarker, SpatialMap } from "../_shared/camera-context-builder.ts";
-import { 
-  buildCameraAnchorPromptText, 
+import {
+  buildCameraAnchorPromptText,
   createCameraOverlayDescription,
-  CameraMarkerData 
+  CameraMarkerData
 } from "../_shared/camera-visual-anchor.ts";
-import { 
-  getOppositeViewTemplate, 
-  instantiateOppositeViewTemplate 
+import {
+  getOppositeViewTemplate,
+  instantiateOppositeViewTemplate
 } from "../_shared/template-loader.ts";
 import {
   wrapModelGeneration,
@@ -109,48 +109,48 @@ Generate the opposite-facing view that completes the 360° coverage of this exac
 // Room-type specific rules to prevent misclassification
 function getRoomTypeRules(spaceType: string): string {
   const normalizedType = spaceType.toLowerCase();
-  
+
   if (normalizedType.includes("bedroom") || normalizedType.includes("master")) {
     return `ROOM TYPE RULES (BEDROOM):
 - MUST contain: bed, possibly nightstands, wardrobe or closet
 - MUST NOT contain: toilet, shower, bathtub, bathroom sink, urinal
 - This is a sleeping space - do NOT add bathroom fixtures`;
   }
-  
+
   if (normalizedType.includes("bathroom") || normalizedType.includes("wc") || normalizedType.includes("toilet")) {
     return `ROOM TYPE RULES (BATHROOM):
 - MUST contain at least one of: toilet, shower, bathtub, bathroom sink
 - This is a bathroom - appropriate sanitary fixtures are required`;
   }
-  
+
   if (normalizedType.includes("kitchen")) {
     return `ROOM TYPE RULES (KITCHEN):
 - MUST contain: kitchen counter, cabinets, possibly stove/oven, sink
 - MUST NOT contain: bed, toilet, shower, bathtub
 - This is a cooking space`;
   }
-  
+
   if (normalizedType.includes("living") || normalizedType.includes("lounge")) {
     return `ROOM TYPE RULES (LIVING ROOM):
 - MUST contain: seating (sofa, chairs), possibly coffee table, TV area
 - MUST NOT contain: bed, toilet, shower, bathtub, kitchen appliances
 - This is a living/relaxation space`;
   }
-  
+
   if (normalizedType.includes("closet") || normalizedType.includes("wardrobe") || normalizedType.includes("dressing")) {
     return `ROOM TYPE RULES (CLOSET/DRESSING):
 - MUST contain: storage shelves, hanging rails, possibly drawers
 - MUST NOT contain: toilet, shower, bathtub, bed
 - This is a storage/dressing space`;
   }
-  
+
   if (normalizedType.includes("dining")) {
     return `ROOM TYPE RULES (DINING):
 - MUST contain: dining table, chairs
 - MUST NOT contain: bed, toilet, shower, bathtub
 - This is an eating space`;
   }
-  
+
   return `ROOM TYPE RULES:
 - Maintain appropriate furniture for a ${spaceType}
 - Do NOT add bathroom fixtures unless this is explicitly a bathroom`;
@@ -158,7 +158,7 @@ function getRoomTypeRules(spaceType: string): string {
 
 // Build scale constraints for render prompts based on dimension analysis
 function buildRenderScaleConstraints(
-  dimensionAnalysis: any | null, 
+  dimensionAnalysis: any | null,
   spaceType: string
 ): string {
   if (!dimensionAnalysis?.dimensions_found) {
@@ -170,10 +170,10 @@ function buildRenderScaleConstraints(
   }
 
   const units = dimensionAnalysis.units || "unknown";
-  
+
   // Extract room-specific dimensions if available
   const roomDimensions = (dimensionAnalysis.extracted_dimensions || [])
-    .filter((d: any) => 
+    .filter((d: any) =>
       d.label?.toLowerCase().includes(spaceType.toLowerCase()) ||
       d.label?.toLowerCase().includes("room") ||
       d.label?.toLowerCase().includes("width") ||
@@ -250,7 +250,7 @@ async function emitPipelineEvent(
 serve(async (req) => {
   // Generate unique request ID for tracing
   const requestId = crypto.randomUUID().substring(0, 8);
-  
+
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -278,9 +278,9 @@ serve(async (req) => {
     }
     const userId = claimsData.user.id;
 
-    const { 
-      render_id, 
-      styled_image_upload_id, 
+    const {
+      render_id,
+      styled_image_upload_id,
       custom_prompt,
       // NEW: Grounding context for Kind B renders
       first_render_upload_id,
@@ -290,7 +290,7 @@ serve(async (req) => {
       is_edit_inpaint,
       user_correction_text,
     } = await req.json();
-    
+
     console.log(`[space-render][${requestId}] Request received: render_id=${render_id}, step=5`);
 
     if (!render_id) {
@@ -338,7 +338,7 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // IDEMPOTENCY CHECK: Prevent duplicate generation for same render
     // Key: (pipeline_id, space_id, camera_kind, step=5)
@@ -357,7 +357,7 @@ serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
+
     // Additional check: Any other render for same space/kind already generating?
     const { data: duplicateRenders } = await serviceClient
       .from("floorplan_space_renders")
@@ -366,7 +366,7 @@ serve(async (req) => {
       .eq("kind", render.kind)
       .in("status", IN_PROGRESS_STATUSES)
       .neq("id", render_id);
-    
+
     if (duplicateRenders && duplicateRenders.length > 0) {
       console.log(`[space-render][${requestId}] IDEMPOTENCY: Found ${duplicateRenders.length} duplicate(s) in-progress for space ${render.space_id} kind ${render.kind}:`, duplicateRenders.map(r => r.id));
       return new Response(
@@ -379,7 +379,7 @@ serve(async (req) => {
         { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
+
     console.log(`[space-render][${requestId}] Starting generation for render ${render_id} (${render.kind}) space=${render.space_id}`);
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -388,10 +388,10 @@ serve(async (req) => {
     // ═══════════════════════════════════════════════════════════════════════════
     const isKindB = render.kind === "B";
     const isInpaintMode = is_edit_inpaint && render.source_image_upload_id;
-    
+
     // Track Camera A's output for Camera B grounding (may be passed in or fetched from DB)
     let resolvedCameraAOutputId: string | null = first_render_upload_id || null;
-    
+
     if (isKindB && !isInpaintMode) {
       // Always check DB for Camera A output - even if first_render_upload_id was provided
       const { data: cameraARender } = await serviceClient
@@ -400,17 +400,17 @@ serve(async (req) => {
         .eq("space_id", render.space_id)
         .eq("kind", "A")
         .single();
-      
-      const cameraAReady = cameraARender?.output_upload_id && 
+
+      const cameraAReady = cameraARender?.output_upload_id &&
         (cameraARender.locked_approved || cameraARender.status === "needs_review");
-      
+
       if (!cameraAReady && !resolvedCameraAOutputId) {
         // HARD BLOCK: Camera B cannot run without Camera A's output
         console.error(`[space-render] BLOCKED: Camera B cannot run without Camera A output`);
-        
+
         await serviceClient
           .from("floorplan_space_renders")
-          .update({ 
+          .update({
             status: "blocked",
             qa_report: {
               error: "CAMERA_A_DEPENDENCY_REQUIRED",
@@ -419,9 +419,9 @@ serve(async (req) => {
             }
           })
           .eq("id", render_id);
-        
+
         return new Response(
-          JSON.stringify({ 
+          JSON.stringify({
             error: "CAMERA_A_DEPENDENCY_REQUIRED",
             message: "Camera B cannot generate without Camera A's output. Generate Camera A first.",
             requires_camera_a: true,
@@ -429,20 +429,20 @@ serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      
+
       // AUTO-RESOLVE: If first_render_upload_id wasn't provided but Camera A has output, use it
       if (!resolvedCameraAOutputId && cameraARender?.output_upload_id) {
         resolvedCameraAOutputId = cameraARender.output_upload_id;
         console.log(`[space-render] AUTO-RESOLVED Camera A output from DB: ${resolvedCameraAOutputId}`);
       }
-      
+
       // FINAL VALIDATION: Camera B MUST have a resolved Camera A anchor
       if (!resolvedCameraAOutputId) {
         console.error(`[space-render] CRITICAL ERROR: Camera B has no Camera A anchor after all checks`);
-        
+
         await serviceClient
           .from("floorplan_space_renders")
-          .update({ 
+          .update({
             status: "blocked",
             qa_report: {
               error: "CAMERA_B_ANCHOR_MISSING",
@@ -451,9 +451,9 @@ serve(async (req) => {
             }
           })
           .eq("id", render_id);
-        
+
         return new Response(
-          JSON.stringify({ 
+          JSON.stringify({
             error: "CAMERA_B_ANCHOR_MISSING",
             message: "Camera B requires Camera A's output but none was resolved. Please ensure Camera A is complete.",
             requires_camera_a: true,
@@ -461,7 +461,7 @@ serve(async (req) => {
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      
+
       console.log(`[space-render] ✓ Camera B will use Camera A anchor: ${resolvedCameraAOutputId}`);
     }
 
@@ -481,7 +481,7 @@ serve(async (req) => {
     const spaceName = render.space?.name || space_metadata?.name || "Room";
     const spaceType = render.space?.space_type || space_metadata?.space_type || "room";
     const pipelineId = render.pipeline_id;
-    
+
     console.log(`[space-render] ${isInpaintMode ? "EDITING (Inpaint)" : "Generating"} render ${render_id} (${render.kind}) for space ${spaceName}`);
     console.log(`[space-render] Space type: ${spaceType}`);
     if (isInpaintMode) {
@@ -491,12 +491,12 @@ serve(async (req) => {
     if (isKindB && resolvedCameraAOutputId) {
       console.log(`[space-render] Kind B grounded with Camera A output: ${resolvedCameraAOutputId}`);
     }
-    
+
     // Emit start event
     await emitPipelineEvent(
       serviceClient, pipelineId, userId,
-      isInpaintMode ? "edit_inpaint_started" : "render_start", 
-      isInpaintMode 
+      isInpaintMode ? "edit_inpaint_started" : "render_start",
+      isInpaintMode
         ? `✏ Editing render ${render.kind} for ${spaceName}...`
         : `Generating render ${render.kind} for ${spaceName}...`,
       10
@@ -508,17 +508,17 @@ serve(async (req) => {
       .select("step_outputs, output_resolution, aspect_ratio, quality_post_step4, floor_plan_upload_id, project_id")
       .eq("id", render.pipeline_id)
       .single();
-    
+
     const stepOutputs = (pipeline?.step_outputs as Record<string, any>) || {};
     const dimensionAnalysis = stepOutputs.dimension_analysis || null;
     const actualFloorPlanId = floor_plan_upload_id || pipeline?.floor_plan_upload_id;
-    
+
     // Quality settings
     const qualityPostStep4 = pipeline?.quality_post_step4 || pipeline?.output_resolution || "2K";
     const aspectRatio = pipeline?.aspect_ratio || "16:9";
     const validSizes = ["1K", "2K", "4K"];
     const imageSize = validSizes.includes(qualityPostStep4) ? qualityPostStep4 : "2K";
-    
+
     console.log(`[space-render] Quality: ${imageSize}, Aspect: ${aspectRatio}`);
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -526,7 +526,7 @@ serve(async (req) => {
     // ═══════════════════════════════════════════════════════════════════════════
     let cameraMarker: CameraMarker | null = null;
     let spatialMap: SpatialMap | null = null;
-    
+
     // Load camera marker if linked to this render
     if (render.camera_marker_id) {
       const { data: marker } = await serviceClient
@@ -534,11 +534,11 @@ serve(async (req) => {
         .select("*")
         .eq("id", render.camera_marker_id)
         .single();
-      
+
       if (marker) {
         cameraMarker = marker as CameraMarker;
         console.log(`[space-render] Loaded camera marker: ${cameraMarker.label}`);
-        
+
         // ═══════════════════════════════════════════════════════════════════════════
         // MANDATORY ANCHOR SANITY GATE - Block if anchors not ready
         // ═══════════════════════════════════════════════════════════════════════════
@@ -548,31 +548,31 @@ serve(async (req) => {
           anchor_single_overlay_path: string | null;
           anchor_crop_overlay_path: string | null;
         };
-        
+
         if (typedMarker.anchor_status !== "ready") {
           console.error(`[space-render] BLOCKED: Camera ${cameraMarker.label} anchor_status = ${typedMarker.anchor_status}`);
-          
+
           await emitPipelineEvent(
             serviceClient, pipelineId, userId,
-            "ANCHOR_GATE_BLOCKED", 
+            "ANCHOR_GATE_BLOCKED",
             `❌ Camera ${cameraMarker.label} anchor not ready (status: ${typedMarker.anchor_status})`,
             0
           );
-          
+
           await serviceClient
             .from("floorplan_space_renders")
-            .update({ 
+            .update({
               status: "blocked",
-              qa_report: { 
+              qa_report: {
                 error: "ANCHOR_GATE_BLOCKED",
                 message: `Camera anchor not ready. Status: ${typedMarker.anchor_status}`,
                 required_action: "Create camera anchor before generating render",
               },
             })
             .eq("id", render_id);
-          
+
           return new Response(
-            JSON.stringify({ 
+            JSON.stringify({
               error: "ANCHOR_GATE_BLOCKED",
               message: `Camera ${cameraMarker.label} anchor not ready (status: ${typedMarker.anchor_status})`,
               anchor_status: typedMarker.anchor_status,
@@ -581,37 +581,37 @@ serve(async (req) => {
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
-        
+
         // Verify all 3 anchor artifacts exist
         const missingArtifacts: string[] = [];
         if (!typedMarker.anchor_base_plan_path) missingArtifacts.push("base_plan_image");
         if (!typedMarker.anchor_single_overlay_path) missingArtifacts.push("plan_single_camera_overlay");
         if (!typedMarker.anchor_crop_overlay_path) missingArtifacts.push("space_crop_single_camera_overlay");
-        
+
         if (missingArtifacts.length > 0) {
           console.error(`[space-render] BLOCKED: Missing anchor artifacts: ${missingArtifacts.join(", ")}`);
-          
+
           await emitPipelineEvent(
             serviceClient, pipelineId, userId,
-            "ANCHOR_ARTIFACTS_MISSING", 
+            "ANCHOR_ARTIFACTS_MISSING",
             `❌ Camera ${cameraMarker.label} missing anchor artifacts: ${missingArtifacts.join(", ")}`,
             0
           );
-          
+
           await serviceClient
             .from("floorplan_space_renders")
-            .update({ 
+            .update({
               status: "blocked",
-              qa_report: { 
+              qa_report: {
                 error: "ANCHOR_ARTIFACTS_MISSING",
                 missing_artifacts: missingArtifacts,
                 required_action: "Regenerate camera anchor",
               },
             })
             .eq("id", render_id);
-          
+
           return new Response(
-            JSON.stringify({ 
+            JSON.stringify({
               error: "ANCHOR_ARTIFACTS_MISSING",
               message: `Camera ${cameraMarker.label} missing ${missingArtifacts.length} anchor artifact(s)`,
               missing_artifacts: missingArtifacts,
@@ -620,11 +620,11 @@ serve(async (req) => {
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
-        
+
         console.log(`[space-render] ✓ Anchor sanity gate passed for ${cameraMarker.label}`);
       }
     }
-    
+
     // Load spatial map for adjacency context
     const { data: spatialMapData } = await serviceClient
       .from("pipeline_spatial_maps")
@@ -633,7 +633,7 @@ serve(async (req) => {
       .order("version", { ascending: false })
       .limit(1)
       .maybeSingle();
-    
+
     if (spatialMapData) {
       spatialMap = {
         id: spatialMapData.id,
@@ -645,7 +645,7 @@ serve(async (req) => {
       } as SpatialMap;
       console.log(`[space-render] Loaded spatial map v${spatialMap.version} with ${spatialMap.rooms.length} rooms`);
     }
-    
+
     // Build camera context using the helper
     const cameraContext = buildCameraContext(
       cameraMarker,
@@ -654,27 +654,27 @@ serve(async (req) => {
       spaceName,
       spaceType
     );
-    
+
     console.log(`[space-render] Camera context built:`, {
       hasMarker: !!cameraMarker,
       hasSpatialMap: !!spatialMap,
       adjacentRooms: cameraContext.adjacencyJson
     });
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // LOAD ANCHOR IMAGES FOR NANOBANANA PROMPT
     // ═══════════════════════════════════════════════════════════════════════════
     let anchorBasePlanBase64: string | null = null;
     let anchorSingleOverlayBase64: string | null = null;
     let anchorCropOverlayBase64: string | null = null;
-    
+
     if (cameraMarker) {
       const typedMarker = cameraMarker as unknown as {
         anchor_base_plan_path: string | null;
         anchor_single_overlay_path: string | null;
         anchor_crop_overlay_path: string | null;
       };
-      
+
       // Load anchor images from storage
       try {
         const loadAnchorImage = async (path: string | null): Promise<string | null> => {
@@ -696,13 +696,13 @@ serve(async (req) => {
             return null;
           }
         };
-        
+
         [anchorBasePlanBase64, anchorSingleOverlayBase64, anchorCropOverlayBase64] = await Promise.all([
           loadAnchorImage(typedMarker.anchor_base_plan_path),
           loadAnchorImage(typedMarker.anchor_single_overlay_path),
           loadAnchorImage(typedMarker.anchor_crop_overlay_path),
         ]);
-        
+
         console.log(`[space-render] Anchor images loaded: base=${!!anchorBasePlanBase64}, overlay=${!!anchorSingleOverlayBase64}, crop=${!!anchorCropOverlayBase64}`);
       } catch (anchorLoadError) {
         console.error(`[space-render] Failed to load anchor images: ${anchorLoadError}`);
@@ -715,7 +715,7 @@ serve(async (req) => {
     let scanCropBase64: string | null = null;
     let scanCropPromptHint: string | null = null;
     let scanDetectedLabel: string | null = null;
-    
+
     if (render.camera_marker_id) {
       try {
         // Get latest scan for this pipeline
@@ -726,7 +726,7 @@ serve(async (req) => {
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-        
+
         if (latestScan) {
           // Get scan item for this marker
           const { data: scanItem } = await serviceClient
@@ -735,18 +735,18 @@ serve(async (req) => {
             .eq("scan_id", latestScan.id)
             .eq("marker_id", render.camera_marker_id)
             .maybeSingle();
-          
+
           if (scanItem) {
             scanDetectedLabel = scanItem.detected_room_label || null;
             scanCropPromptHint = scanItem.prompt_hint_text || null;
-            
+
             // Load crop image if available
             if (scanItem.crop_storage_path) {
               try {
                 const { data: cropData, error: cropError } = await serviceClient.storage
                   .from("outputs")
                   .download(scanItem.crop_storage_path);
-                
+
                 if (!cropError && cropData) {
                   const arrayBuffer = await cropData.arrayBuffer();
                   const bytes = new Uint8Array(arrayBuffer);
@@ -761,7 +761,7 @@ serve(async (req) => {
                 console.log(`[space-render] Could not load scan crop: ${cropLoadError}`);
               }
             }
-            
+
             if (scanDetectedLabel) {
               console.log(`[space-render] Detected label from scan: "${scanDetectedLabel}"`);
             }
@@ -780,10 +780,10 @@ serve(async (req) => {
 
     if (isInpaintMode) {
       console.log(`[space-render] INPAINT MODE - Loading source image...`);
-      
+
       await emitPipelineEvent(
         serviceClient, pipelineId, userId,
-        "edit_inpaint_fetching", 
+        "edit_inpaint_fetching",
         `Loading source image for editing ${spaceName} (${render.kind})...`,
         15
       );
@@ -794,7 +794,7 @@ serve(async (req) => {
 
       await emitPipelineEvent(
         serviceClient, pipelineId, userId,
-        "edit_inpaint_fetching", 
+        "edit_inpaint_fetching",
         `Source image loaded for ${spaceName} (${render.kind})`,
         20
       );
@@ -828,7 +828,7 @@ Generate a high-quality edited image that applies ONLY the requested changes whi
 
       await emitPipelineEvent(
         serviceClient, pipelineId, userId,
-        "edit_inpaint_api_call", 
+        "edit_inpaint_api_call",
         `Sending edit request for ${spaceName} (${render.kind}) to AI...`,
         30
       );
@@ -837,19 +837,19 @@ Generate a high-quality edited image that applies ONLY the requested changes whi
       // ═══════════════════════════════════════════════════════════════════════════
       // NORMAL GENERATION MODE
       // ═══════════════════════════════════════════════════════════════════════════
-      
+
       // Fetch styled image (required for generation)
       await emitPipelineEvent(
         serviceClient, pipelineId, userId,
-        "download_start", 
+        "download_start",
         `Loading styled image for ${spaceName}...`,
         15
       );
       const { base64: styledImageBase64, mimeType: styledMimeType } = await fetchImageAsBase64(serviceClient, styled_image_upload_id);
-      
+
       await emitPipelineEvent(
         serviceClient, pipelineId, userId,
-        "download_complete", 
+        "download_complete",
         `Styled image loaded for ${spaceName}`,
         20
       );
@@ -863,17 +863,17 @@ Generate a high-quality edited image that applies ONLY the requested changes whi
       // ═══════════════════════════════════════════════════════════════════════════
       let visualCameraAnchorPrompt = "";
       let cameraOverlayDescription = "";
-      
+
       if (cameraMarker) {
         const cameraKind = render.kind as "A" | "B";
-        
+
         // Build the visual anchor prompt text
         visualCameraAnchorPrompt = buildCameraAnchorPromptText(
           cameraMarker as unknown as CameraMarkerData,
           cameraKind,
           spaceName
         );
-        
+
         // Get overlay description (text-based since we can't do image compositing in Deno)
         // This describes exactly where the camera is positioned
         const overlayInfo = createCameraOverlayDescription(
@@ -884,7 +884,7 @@ Generate a high-quality edited image that applies ONLY the requested changes whi
           1080
         );
         cameraOverlayDescription = overlayInfo.description;
-        
+
         console.log(`[space-render] Visual camera anchor built for ${cameraKind}: ${cameraMarker.label}`);
       } else {
         visualCameraAnchorPrompt = `
@@ -905,10 +905,10 @@ Direction: Looking into the main area of the space
         // CRITICAL: This is the ONLY valid path for Camera B generation
         // ═══════════════════════════════════════════════════════════════════════════
         console.log(`[space-render] Building ANCHORED Kind B prompt (grounded in Camera A: ${resolvedCameraAOutputId})`);
-        
+
         await emitPipelineEvent(
           serviceClient, pipelineId, userId,
-          "grounding_start", 
+          "grounding_start",
           `Loading Camera A output for anchoring ${spaceName} (B)...`,
           25
         );
@@ -916,7 +916,7 @@ Direction: Looking into the main area of the space
         // Fetch Camera A's output image (MANDATORY anchor)
         const { base64: cameraAOutputBase64, mimeType: cameraAMimeType } = await fetchImageAsBase64(serviceClient, resolvedCameraAOutputId);
         console.log(`[space-render] ✓ Camera A output loaded as visual anchor`);
-        
+
         // Optionally fetch floor plan for additional grounding
         let floorPlanBase64: string | null = null;
         let floorPlanMimeType: string = "image/jpeg";
@@ -933,7 +933,7 @@ Direction: Looking into the main area of the space
 
         await emitPipelineEvent(
           serviceClient, pipelineId, userId,
-          "grounding_complete", 
+          "grounding_complete",
           `Camera A anchor loaded for ${spaceName} (B) - generating opposite view`,
           30
         );
@@ -944,15 +944,15 @@ Direction: Looking into the main area of the space
         // ═══════════════════════════════════════════════════════════════════════════
         console.log(`[space-render] Loading centralized opposite-view template...`);
         const oppositeViewTemplate = await getOppositeViewTemplate(serviceClient);
-        
+
         // Extract camera position data for template instantiation
-        const cameraPosition = cameraMarker 
-          ? `(${cameraMarker.x_norm.toFixed(4)}, ${cameraMarker.y_norm.toFixed(4)})` 
+        const cameraPosition = cameraMarker
+          ? `(${cameraMarker.x_norm.toFixed(4)}, ${cameraMarker.y_norm.toFixed(4)})`
           : "(center of space)";
         const yawDeg = cameraMarker?.yaw_deg || 0;
         const cameraAYaw = (yawDeg + 180) % 360; // Camera A was opposite
         const yawOppositeDesc = `${yawDeg.toFixed(1)}° (Camera A was ${cameraAYaw.toFixed(1)}°)`;
-        
+
         // Instantiate template with runtime values
         finalPrompt = instantiateOppositeViewTemplate(oppositeViewTemplate, {
           camera_position: cameraPosition,
@@ -963,21 +963,22 @@ Direction: Looking into the main area of the space
           space_name: spaceName,
           space_type: spaceType,
         });
-        
+
         // Append visual camera anchor info and camera overlay description
         finalPrompt += `\n\n${visualCameraAnchorPrompt}\n\n${cameraOverlayDescription}`;
-        
+
         console.log(`[space-render] ✓ Opposite-view template instantiated for ${spaceName} (B)`);
 
         // Build content parts - Camera A output is FIRST and MOST IMPORTANT
         contentParts = [
           { text: finalPrompt },
         ];
-        
+
         // ═══════════════════════════════════════════════════════════════════════════
         // CAMERA A OUTPUT - PRIMARY ANCHOR (Must be first image for maximum grounding)
         // ═══════════════════════════════════════════════════════════════════════════
-        contentParts.push({ text: `
+        contentParts.push({
+          text: `
 ═══════════════════════════════════════════════════════════════
 🎯 CAMERA A OUTPUT - YOUR PRIMARY ANCHOR (MANDATORY)
 ═══════════════════════════════════════════════════════════════
@@ -990,7 +991,7 @@ view of this EXACT room. Study this image carefully:
 
 Generate the view as if you turned around 180° from this position.` });
         contentParts.push({ inlineData: { mimeType: cameraAMimeType, data: cameraAOutputBase64 } });
-        
+
         // ═══════════════════════════════════════════════════════════════════════════
         // ADD CAMERA ANCHOR SCREENSHOTS (SECONDARY - for position/direction)
         // ═══════════════════════════════════════════════════════════════════════════
@@ -998,21 +999,21 @@ Generate the view as if you turned around 180° from this position.` });
           contentParts.push({ text: "\n\n📍 VISUAL ANCHOR #1 - BASE FLOOR PLAN (Clean plan with room labels):" });
           contentParts.push({ inlineData: { mimeType: "image/png", data: anchorBasePlanBase64 } });
         }
-        
+
         if (anchorSingleOverlayBase64) {
           contentParts.push({ text: "\n\n📍 VISUAL ANCHOR #2 - CAMERA B OVERLAY (Follow this direction EXACTLY - 180° from A):" });
           contentParts.push({ inlineData: { mimeType: "image/png", data: anchorSingleOverlayBase64 } });
         }
-        
+
         if (anchorCropOverlayBase64) {
           contentParts.push({ text: "\n\n📍 VISUAL ANCHOR #3 - SPACE CROP (Same space as Camera A, opposite direction):" });
           contentParts.push({ inlineData: { mimeType: "image/png", data: anchorCropOverlayBase64 } });
         }
-        
+
         // Add scan crop (label-detected region from Camera Scan)
         if (scanCropBase64) {
-          const labelNote = scanDetectedLabel 
-            ? `Focus on the "${scanDetectedLabel}" area - ` 
+          const labelNote = scanDetectedLabel
+            ? `Focus on the "${scanDetectedLabel}" area - `
             : "";
           contentParts.push({ text: `\n\n🎯 SCAN CROP - TARGET AREA (${labelNote}Same space as Camera A):` });
           contentParts.push({ inlineData: { mimeType: "image/png", data: scanCropBase64 } });
@@ -1020,7 +1021,7 @@ Generate the view as if you turned around 180° from this position.` });
             contentParts.push({ text: `\n   Prompt hint: ${scanCropPromptHint}` });
           }
         }
-        
+
         // Add styled image reference
         contentParts.push({ text: "\n\n🎨 STYLED TOP-DOWN VIEW (Reference for materials and layout):" });
         contentParts.push({ inlineData: { mimeType: styledMimeType, data: styledImageBase64 } });
@@ -1030,7 +1031,7 @@ Generate the view as if you turned around 180° from this position.` });
         // KIND A ONLY: Standard generation with VISUAL CAMERA ANCHORS
         // CRITICAL: This branch is NEVER used for Camera B - Camera B is handled above
         // ═══════════════════════════════════════════════════════════════════════════
-        
+
         // Fetch floor plan for visual anchor
         let floorPlanBase64: string | null = null;
         let floorPlanMimeType: string = "image/jpeg";
@@ -1044,19 +1045,33 @@ Generate the view as if you turned around 180° from this position.` });
             console.log(`[space-render] Could not load floor plan: ${e}`);
           }
         }
-        
-        finalPrompt = RENDER_PROMPT_TEMPLATE_A
-          .replace("{space_name}", spaceName)
-          .replace("{space_type}", spaceType)
-          .replace("{VISUAL_CAMERA_ANCHOR}", visualCameraAnchorPrompt)
-          .replace("{CAMERA_CONTEXT}", cameraContext.fullContextBlock + "\n" + cameraOverlayDescription)
-          .replace("{SCALE_CONSTRAINTS}", scaleConstraints)
-          .replace("{ROOM_TYPE_RULES}", roomTypeRules);
+
+        if (custom_prompt) {
+          console.log(`[space-render] Using custom prompt override for Kind A`);
+          finalPrompt = `${custom_prompt}
+          
+${visualCameraAnchorPrompt}
+
+${cameraContext.fullContextBlock}
+${cameraOverlayDescription}
+
+${scaleConstraints}
+
+${roomTypeRules}`;
+        } else {
+          finalPrompt = RENDER_PROMPT_TEMPLATE_A
+            .replace("{space_name}", spaceName)
+            .replace("{space_type}", spaceType)
+            .replace("{VISUAL_CAMERA_ANCHOR}", visualCameraAnchorPrompt)
+            .replace("{CAMERA_CONTEXT}", cameraContext.fullContextBlock + "\n" + cameraOverlayDescription)
+            .replace("{SCALE_CONSTRAINTS}", scaleConstraints)
+            .replace("{ROOM_TYPE_RULES}", roomTypeRules);
+        }
 
         contentParts = [
           { text: finalPrompt },
         ];
-        
+
         // ═══════════════════════════════════════════════════════════════════════════
         // ADD CAMERA ANCHOR SCREENSHOTS (MANDATORY - PRIMARY SOURCE OF TRUTH)
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1064,21 +1079,21 @@ Generate the view as if you turned around 180° from this position.` });
           contentParts.push({ text: "\n\n📍 VISUAL ANCHOR #1 - BASE FLOOR PLAN (Clean plan with room labels, NO camera markers):" });
           contentParts.push({ inlineData: { mimeType: "image/png", data: anchorBasePlanBase64 } });
         }
-        
+
         if (anchorSingleOverlayBase64) {
           contentParts.push({ text: "\n\n📍 VISUAL ANCHOR #2 - CAMERA OVERLAY (ONLY Camera A visible - follow this direction EXACTLY):" });
           contentParts.push({ inlineData: { mimeType: "image/png", data: anchorSingleOverlayBase64 } });
         }
-        
+
         if (anchorCropOverlayBase64) {
           contentParts.push({ text: "\n\n📍 VISUAL ANCHOR #3 - SPACE CROP (Target space with camera position - render this view):" });
           contentParts.push({ inlineData: { mimeType: "image/png", data: anchorCropOverlayBase64 } });
         }
-        
+
         // Add scan crop (label-detected region from Camera Scan)
         if (scanCropBase64) {
-          const labelNote = scanDetectedLabel 
-            ? `Focus on the "${scanDetectedLabel}" area - ` 
+          const labelNote = scanDetectedLabel
+            ? `Focus on the "${scanDetectedLabel}" area - `
             : "";
           contentParts.push({ text: `\n\n🎯 SCAN CROP - TARGET AREA (${labelNote}This is the specific region to render):` });
           contentParts.push({ inlineData: { mimeType: "image/png", data: scanCropBase64 } });
@@ -1086,7 +1101,7 @@ Generate the view as if you turned around 180° from this position.` });
             contentParts.push({ text: `\n   Prompt hint: ${scanCropPromptHint}` });
           }
         }
-        
+
         // Add styled image reference (for materials and layout)
         contentParts.push({ text: "\n\n🎨 STYLED TOP-DOWN VIEW (Reference for materials, layout, and furniture positions):" });
         contentParts.push({ inlineData: { mimeType: styledMimeType, data: styledImageBase64 } });
@@ -1096,10 +1111,10 @@ Generate the view as if you turned around 180° from this position.` });
         // This is a safety net - should never execute if dependency gate works correctly
         // ═══════════════════════════════════════════════════════════════════════════
         console.error(`[space-render] CRITICAL ERROR: Camera B (${render_id}) reached prompt building without anchor`);
-        
+
         await serviceClient
           .from("floorplan_space_renders")
-          .update({ 
+          .update({
             status: "failed",
             qa_report: {
               error: "CAMERA_B_TEMPLATE_VIOLATION",
@@ -1107,9 +1122,9 @@ Generate the view as if you turned around 180° from this position.` });
             }
           })
           .eq("id", render_id);
-        
+
         return new Response(
-          JSON.stringify({ 
+          JSON.stringify({
             error: "CAMERA_B_TEMPLATE_VIOLATION",
             message: "Camera B cannot be rendered without Camera A anchor. This should not happen.",
           }),
@@ -1133,9 +1148,9 @@ Generate the view as if you turned around 180° from this position.` });
       yaw_deg: cameraMarker?.yaw_deg,
       fov_deg: cameraMarker?.fov_deg,
     };
-    
+
     console.log(`[space-render] 📦 IMAGE BUNDLE for ${spaceName} (${render.kind}):`, JSON.stringify(imageBundle, null, 2));
-    
+
     // Count total images being sent
     const imageCount = [
       anchorBasePlanBase64,
@@ -1143,7 +1158,7 @@ Generate the view as if you turned around 180° from this position.` });
       anchorCropOverlayBase64,
       scanCropBase64,
     ].filter(Boolean).length + 1; // +1 for styled image
-    
+
     console.log(`[space-render] Total images in request: ${imageCount} (anchors: ${[anchorBasePlanBase64, anchorSingleOverlayBase64, anchorCropOverlayBase64].filter(Boolean).length}, scan crop: ${scanCropBase64 ? 1 : 0}, styled: 1)`);
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1153,13 +1168,13 @@ Generate the view as if you turned around 180° from this position.` });
 
     await emitPipelineEvent(
       serviceClient, pipelineId, userId,
-      "api_request", 
+      "api_request",
       `Sending ${spaceName} (${render.kind}) to AI (${imageSize})...`,
       40
     );
 
     const attemptIdx = render.attempt_count || 1;
-    
+
     const generationResult = await wrapModelGeneration({
       traceId: pipelineId,
       generationName: STEP_5_GENERATIONS.RENDER_GEN,
@@ -1196,7 +1211,7 @@ Generate the view as if you turned around 180° from this position.` });
       imageCount,
     }, async () => {
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${API_NANOBANANA}`;
-      
+
       const geminiResponse = await fetch(geminiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1220,31 +1235,31 @@ Generate the view as if you turned around 180° from this position.` });
 
       return await geminiResponse.json();
     });
-    
+
     if (!generationResult.success || !generationResult.data) {
       console.error(`[space-render] Gemini error: ${generationResult.error?.message}`);
-      
+
       await emitPipelineEvent(
         serviceClient, pipelineId, userId,
-        "api_error", 
+        "api_error",
         `AI error for ${spaceName} (${render.kind}): ${generationResult.error?.message || "Unknown error"}`,
         0
       );
-      
+
       await serviceClient
         .from("floorplan_space_renders")
         .update({ status: "failed", qa_report: { error: generationResult.error?.message } })
         .eq("id", render_id);
-      
+
       throw generationResult.error || new Error("Image generation failed");
     }
 
     const geminiData = generationResult.data as any;
     console.log(`[space-render] Gemini response received (${generationResult.timingMs}ms, gen_id: ${generationResult.generationId})`);
-    
+
     await emitPipelineEvent(
       serviceClient, pipelineId, userId,
-      "api_complete", 
+      "api_complete",
       `AI generated render for ${spaceName} (${render.kind})`,
       60
     );
@@ -1269,7 +1284,7 @@ Generate the view as if you turned around 180° from this position.` });
       console.error(`[space-render] No image in response`);
       await emitPipelineEvent(
         serviceClient, pipelineId, userId,
-        "api_error", 
+        "api_error",
         `No image generated for ${spaceName} (${render.kind})`,
         0
       );
@@ -1285,12 +1300,12 @@ Generate the view as if you turned around 180° from this position.` });
     const outputPath = `${userId}/space_renders/${render_id}_${Date.now()}.${ext}`;
     const imageBytes = Uint8Array.from(atob(generatedImageData), (c) => c.charCodeAt(0));
     const fileSizeMB = (imageBytes.length / 1024 / 1024).toFixed(2);
-    
+
     console.log(`[space-render] Output: ${fileSizeMB} MB, ${generatedMimeType}`);
-    
+
     await emitPipelineEvent(
       serviceClient, pipelineId, userId,
-      "upload_start", 
+      "upload_start",
       `Saving render for ${spaceName} (${render.kind})...`,
       70
     );
@@ -1305,7 +1320,7 @@ Generate the view as if you turned around 180° from this position.` });
     if (uploadError) {
       await emitPipelineEvent(
         serviceClient, pipelineId, userId,
-        "upload_error", 
+        "upload_error",
         `Failed to save render for ${spaceName}: ${uploadError.message}`,
         0
       );
@@ -1331,10 +1346,10 @@ Generate the view as if you turned around 180° from this position.` });
     if (uploadRecordError) {
       throw new Error(`Failed to create upload record: ${uploadRecordError.message}`);
     }
-    
+
     await emitPipelineEvent(
       serviceClient, pipelineId, userId,
-      "upload_complete", 
+      "upload_complete",
       `Render saved for ${spaceName} (${render.kind}) - ${fileSizeMB} MB`,
       85
     );
@@ -1344,7 +1359,7 @@ Generate the view as if you turned around 180° from this position.` });
     // ═══════════════════════════════════════════════════════════════════════════
     await emitPipelineEvent(
       serviceClient, pipelineId, userId,
-      "qa_start", 
+      "qa_start",
       `Running QA for ${spaceName} (${render.kind})...`,
       90
     );
@@ -1387,9 +1402,9 @@ Generate the view as if you turned around 180° from this position.` });
         console.log(`[space-render] QA Result: pass=${qaPass}, score=${qaResult.score}`);
         console.log(`[space-render] Room type violation: ${qaResult.room_type_violation}`);
         console.log(`[space-render] Structural violation: ${qaResult.structural_violation}`);
-        
+
         const qaStatus = qaPass ? "passed" : "failed";
-        
+
         await serviceClient
           .from("floorplan_space_renders")
           .update({
@@ -1405,10 +1420,10 @@ Generate the view as if you turned around 180° from this position.` });
 
         await emitPipelineEvent(
           serviceClient, pipelineId, userId,
-          qaPass ? "qa_passed" : "qa_failed", 
-          qaPass 
+          qaPass ? "qa_passed" : "qa_failed",
+          qaPass
             ? `✓ QA passed for ${spaceName} (${render.kind}): Score ${qaResult.score}`
-            : `✗ QA failed for ${spaceName} (${render.kind}): ${(qaResult.issues as Array<{description: string}>)?.[0]?.description || "Quality issues detected"}`,
+            : `✗ QA failed for ${spaceName} (${render.kind}): ${(qaResult.issues as Array<{ description: string }>)?.[0]?.description || "Quality issues detected"}`,
           95
         );
 
@@ -1418,14 +1433,14 @@ Generate the view as if you turned around 180° from this position.` });
           if (autoRetry.triggered) {
             await emitPipelineEvent(
               serviceClient, pipelineId, userId,
-              "auto_retry_triggered", 
+              "auto_retry_triggered",
               `↻ Auto-retry triggered for ${spaceName} (${render.kind}): ${autoRetry.message}`,
               0
             );
           } else if (autoRetry.blocked_for_human) {
             await emitPipelineEvent(
               serviceClient, pipelineId, userId,
-              "blocked_for_human", 
+              "blocked_for_human",
               `⚠ ${spaceName} (${render.kind}) blocked after max attempts - manual review required`,
               0
             );
@@ -1464,10 +1479,10 @@ Generate the view as if you turned around 180° from this position.` });
       .eq("id", render.space_id);
 
     console.log(`[space-render] Render ${render_id} completed successfully`);
-    
+
     await emitPipelineEvent(
       serviceClient, pipelineId, userId,
-      "render_complete", 
+      "render_complete",
       `✓ ${spaceName} (${render.kind}) render complete`,
       100
     );

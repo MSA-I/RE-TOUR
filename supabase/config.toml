@@ -1,5 +1,8 @@
 project_id = "pyswjfcqirszxelrsotw"
 
+[db.migrations]
+# Track applied migrations in supabase_migrations.schema_migrations
+
 [functions.store-qa-attempt-feedback]
 verify_jwt = false
 
@@ -111,7 +114,13 @@ verify_jwt = false
 [functions.run-advance-pipeline]
 verify_jwt = false
 
-[functions.run-batch-space-renders]
+[functions.save-camera-intents]
+verify_jwt = false
+
+[functions.compose-final-prompts]
+verify_jwt = false
+
+[functions.run-batch-space-outputs]
 verify_jwt = false
 
 [functions.run-batch-space-panoramas]

@@ -38,15 +38,16 @@ export interface PipelineProgressBarProps {
   className?: string;
 }
 
-// Milestones at which progress snaps to
+// Milestones at which progress snaps to (aligned with new pipeline structure)
 const MILESTONES = {
-  ANALYSIS_COMPLETE: 0,
-  STEP1_APPROVED: 20,
-  STEP2_APPROVED: 40,
-  STEP3_COMPLETE: 50, // Intermediate milestone for space detection
-  RENDERS_APPROVED: 60,
-  PANORAMAS_APPROVED: 80,
-  COMPLETE: 100,
+  ANALYSIS_COMPLETE: 0,           // Step 0: Design Ref + Space Scan
+  STEP1_APPROVED: 15,              // Step 1: 2D Plan approved
+  STEP2_APPROVED: 30,              // Step 2: Style approved
+  STEP3_SPACE_SCAN_COMPLETE: 40,  // Step 0.2: Space Scan complete
+  STEP4_CAMERA_INTENT_SELECTED: 50, // Step 3: Camera Intent selected
+  STEP5_PROMPTS_FINALIZED: 60,    // Step 4: Prompts+Gen finalized
+  STEP6_OUTPUTS_APPROVED: 80,     // Step 5: Outputs+QA approved
+  COMPLETE: 100,                   // Step 10: Final Approval
 };
 
 /**
@@ -175,24 +176,39 @@ export const PipelineProgressBar = memo(function PipelineProgressBar({
     };
   }, [phase, currentStep, step1Approved, step2Approved, step3Complete, spacesCount, rendersApproved, panoramasApproved, final360sApproved]);
 
+  // Respect prefers-reduced-motion
+  const prefersReducedMotion = typeof window !== 'undefined'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false;
+
   return (
     <div className={cn("w-full space-y-1", className)}>
       {/* Progress bar container */}
-      <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
+      <div
+        className="relative h-2 w-full overflow-hidden rounded-full bg-secondary"
+        role="progressbar"
+        aria-valuenow={Math.round(baseProgress)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`Pipeline progress: ${Math.round(baseProgress)}% complete - ${milestone}`}
+      >
         {/* Base approved progress (solid) */}
         <div
-          className="absolute inset-y-0 left-0 bg-primary transition-all duration-500 ease-out"
-          style={{ width: `${baseProgress}%` }}
+          className="absolute inset-y-0 left-0 bg-primary"
+          style={{
+            width: `${baseProgress}%`,
+            transition: prefersReducedMotion ? 'none' : 'all 500ms ease-out'
+          }}
         />
         
         {/* Animated progress overlay (when running) */}
-        {isAnimating && animatedProgress > baseProgress && (
+        {isAnimating && animatedProgress > baseProgress && !prefersReducedMotion && (
           <div
             className="absolute inset-y-0 left-0 transition-all duration-1000 ease-in-out"
             style={{ width: `${animatedProgress}%` }}
           >
             {/* Animated stripes overlay */}
-            <div 
+            <div
               className="absolute inset-0 bg-gradient-to-r from-primary via-primary/70 to-primary animate-shimmer"
               style={{
                 backgroundSize: "200% 100%",

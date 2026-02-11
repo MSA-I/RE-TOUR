@@ -29,9 +29,9 @@ import { PipelineDesignReferenceUploader } from "@/components/whole-apartment/Pi
 import { ReferenceStyleDebugPanel } from "@/components/whole-apartment/ReferenceStyleDebugPanel";
 import { StageApprovalGate } from "@/components/whole-apartment/StageApprovalGate";
 import { StepRetryStatusIndicator, StepRetryState } from "@/components/whole-apartment/StepRetryStatusIndicator";
-// CameraPlanningEditor removed - replaced with CameraIntentSelector (Templates A-H)
-import { CameraIntentSelector } from "@/components/whole-apartment/CameraIntentSelector";
-import { Step4SelectionPanel } from "@/components/whole-apartment/Step4SelectionPanel";
+// Step 3 & 4: New UI components (Decision-Only + Prompt Finalization)
+import { CameraIntentSelectorPanel } from "@/components/whole-apartment/CameraIntentSelectorPanel";
+import { PromptFinalizationPanel } from "@/components/whole-apartment/PromptFinalizationPanel";
 import { StopResetStepButton } from "@/components/whole-apartment/StopResetStepButton";
 import { StepControlsFooter } from "@/components/whole-apartment/StepControlsFooter";
 
@@ -1539,7 +1539,7 @@ function GlobalStepsSection({
               }}
               onContinue={step2Done && phase === "style_review" ? () => {
                 onAction("continue", { fromStep: 2, toStep: 3 });
-                // Trigger phase transition from style_review → camera_intent_pending
+                // Trigger phase transition: style_review → detect_spaces_pending (Step 3)
                 onContinueToStep(2, "style_review");
               } : undefined}
               continueLabel="Continue to Camera Intent"
@@ -1584,7 +1584,7 @@ function GlobalStepsSection({
                   size="sm"
                   onClick={() => {
                     onAction("continue", { fromStep: 2, toStep: 3 });
-                    // Trigger phase transition from style_review → camera_intent_pending
+                    // Trigger phase transition: style_review → detect_spaces_pending (Step 3)
                     onContinueToStep(2, "style_review");
                   }}
                   disabled={isRunning || approvalLocked}
@@ -1862,30 +1862,20 @@ function GlobalStepsSection({
                 </div>
               </div>
 
-              {/* Camera Intent Selector Modal - NEW Step 3 UI with Templates A-H */}
+              {/* Camera Intent Selector Modal - REDESIGNED Step 3 UI (Prompt Suggestions) */}
               {/* Only allow editing when not committed (renders not started) */}
               {cameraPlanningOpen && step2UploadId && !isCameraCommitted && (
                 <Dialog open={cameraPlanningOpen} onOpenChange={setCameraPlanningOpen}>
                   <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>Camera Intent (Step 3)</DialogTitle>
-                      <DialogDescription>
-                        Select camera templates (A–H) for each space. This is a decision-only layer.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <CameraIntentSelector
+                    <CameraIntentSelectorPanel
                       pipelineId={pipeline.id}
                       spaces={spaces.map(space => ({
                         id: space.id,
                         name: space.name,
                         space_type: space.space_type,
-                        adjacentSpaces: [], // TODO: Load from spatial map
                       }))}
                       onConfirm={() => {
-                        // CameraIntentSelector already calls save-camera-intents edge function
-                        // which transitions to camera_intent_confirmed phase
-                        // We only need to close dialog and refresh pipeline data
-                        // DO NOT call onConfirmCameraPlan() - that's legacy flow that might trigger renders/QA
+                        // Close dialog and refresh pipeline data after selections saved
                         setCameraPlanningOpen(false);
                         queryClient.invalidateQueries(['floorplan-pipeline', pipeline.id]);
                       }}
@@ -1958,24 +1948,22 @@ function GlobalStepsSection({
                 </div>
               </div>
 
-              {/* Step 4 Selection Panel Modal */}
+              {/* Step 4 Prompt Finalization Panel Modal */}
               {step4PanelOpen && (
                 <Dialog open={step4PanelOpen} onOpenChange={setStep4PanelOpen}>
                   <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>Step 4: Selection + Execution</DialogTitle>
-                      <DialogDescription>
-                        Select camera intents to render and generate prompts for image generation.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <Step4SelectionPanel
+                    <PromptFinalizationPanel
                       pipelineId={pipeline.id}
-                      cameraIntents={cameraIntents}
-                      onGeneratePrompts={handleGeneratePrompts}
-                      onGenerateImages={handleGenerateImages}
-                      isGeneratingPrompts={isGeneratingPrompts}
-                      isGeneratingImages={isGeneratingImages}
-                      hasPrompts={hasPrompts}
+                      spaces={spaces.map(space => ({
+                        id: space.id,
+                        name: space.name,
+                        space_type: space.space_type,
+                      }))}
+                      onConfirmAndGenerate={() => {
+                        handleGenerateImages();
+                        setStep4PanelOpen(false);
+                      }}
+                      isGenerating={isGeneratingImages}
                       disabled={isRunning || approvalLocked}
                     />
                   </DialogContent>
@@ -2127,7 +2115,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
     runMerge360,
     // Batch mutations
     advancePipeline,
-    runBatchRenders,
+    runBatchOutputs,
     runBatchPanoramas,
     runBatchMerges,
     // Approval mutations
@@ -2152,6 +2140,9 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
     rollbackToPreviousStep,
     // Phase transition mutation
     continueToStep,
+    // Space Intents/Prompts
+    saveCameraIntents,
+    composeFinalPrompts,
     // Per-space render control
     runSingleSpaceRenders,
     updateSpaceReferences,
@@ -2178,7 +2169,8 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
         .from("camera_intents_with_spaces")
         .select("*")
         .eq("pipeline_id", pipeline.id)
-        .order("generation_order");
+        .order("space_id")
+        .order("suggestion_index");
 
       if (error) {
         console.error("[camera-intents] Query error:", error);
@@ -2257,7 +2249,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
     runSpacePanorama.isPending ||
     runMerge360.isPending ||
     advancePipeline.isPending ||
-    runBatchRenders.isPending ||
+    runBatchOutputs.isPending ||
     runBatchPanoramas.isPending ||
     runBatchMerges.isPending ||
     restartStep.isPending ||
@@ -2330,26 +2322,10 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   const handleGeneratePrompts = useCallback(async (selectedIntentIds: string[]) => {
     setIsGeneratingPrompts(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      const response = await fetch('/functions/v1/generate-camera-prompts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({
-          pipeline_id: pipeline.id,
-          camera_intent_ids: selectedIntentIds,
-        }),
+      const result = await composeFinalPrompts.mutateAsync({
+        pipelineId: pipeline.id,
+        selectedIntentIds,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate prompts');
-      }
-
-      const result = await response.json();
 
       toast.toast({
         title: "Prompts Generated",
@@ -2371,7 +2347,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
     } finally {
       setIsGeneratingPrompts(false);
     }
-  }, [pipeline.id, toast, queryClient, refetchCameraIntents]);
+  }, [pipeline.id, toast, queryClient, refetchCameraIntents, composeFinalPrompts]);
 
   // Step 4: Generate Images handler
   const handleGenerateImages = useCallback(async () => {
@@ -2381,7 +2357,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
         throw new Error('Step 2 output not found. Please complete Style Application first.');
       }
 
-      runBatchRenders.mutate(
+      runBatchOutputs.mutate(
         {
           pipelineId: pipeline.id,
           styledImageUploadId: styledImageUploadId,
@@ -2417,7 +2393,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
       setIsGeneratingImages(false);
       throw error;
     }
-  }, [pipeline.id, styledImageUploadId, runBatchRenders, toast]);
+  }, [pipeline.id, styledImageUploadId, runBatchOutputs, toast]);
 
   const handleRunTopDown = useCallback(() => {
     console.log("[UI] Step 1 Generate button clicked", {
@@ -3426,7 +3402,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
                   break;
                 case "start_renders":
                   if (styledImageUploadId) {
-                    runBatchRenders.mutate({ pipelineId: pipeline.id, styledImageUploadId });
+                    runBatchOutputs.mutate({ pipelineId: pipeline.id, styledImageUploadId });
                     setTerminalOpen(true); // Open terminal to show progress
                     toast({ title: "Starting renders", description: `Processing ${activeSpaces.length * 2} renders...` });
                   }

@@ -73,7 +73,7 @@ serve(async (req) => {
     // Fetch pipeline and check if enabled
     const { data: pipeline } = await serviceClient
       .from("floorplan_pipelines")
-      .select("is_enabled, run_state, floor_plan_upload_id, camera_plan_confirmed_at, aspect_ratio, quality_post_step4")
+      .select("is_enabled, run_state, floor_plan_upload_id, camera_intent_confirmed_at, aspect_ratio, quality_post_step4")
       .eq("id", pipeline_id)
       .single();
 
@@ -89,14 +89,14 @@ serve(async (req) => {
       );
     }
 
-    // Check if camera plan is confirmed - required for camera-aware rendering
-    if (!pipeline?.camera_plan_confirmed_at) {
-      console.log(`[batch-renders] Camera plan not confirmed for pipeline ${pipeline_id}`);
+    // Check if camera intent is confirmed - required for camera-aware rendering
+    if (!pipeline?.camera_intent_confirmed_at) {
+      console.log(`[batch-renders] Camera intent not confirmed for pipeline ${pipeline_id}`);
       return new Response(
         JSON.stringify({
           success: false,
-          message: "Camera plan must be confirmed before generating renders. Please complete Camera Planning first.",
-          error_code: "CAMERA_PLAN_REQUIRED"
+          message: "Camera intent must be confirmed before generating renders. Please complete Camera Intent selection first.",
+          error_code: "CAMERA_INTENT_REQUIRED"
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );

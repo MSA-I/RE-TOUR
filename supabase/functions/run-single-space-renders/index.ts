@@ -81,9 +81,9 @@ serve(async (req) => {
     const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Validate pipeline exists and is enabled
-    const { data: pipeline, error: pipelineError } = await serviceClient
+    const { data: pipeline, error: pipelineError} = await serviceClient
       .from("floorplan_pipelines")
-      .select("id, is_enabled, floor_plan_upload_id, camera_plan_confirmed_at, aspect_ratio, quality_post_step4")
+      .select("id, is_enabled, floor_plan_upload_id, camera_intent_confirmed_at, aspect_ratio, quality_post_step4")
       .eq("id", pipeline_id)
       .eq("owner_id", userId)
       .single();
@@ -102,11 +102,11 @@ serve(async (req) => {
       );
     }
 
-    if (!pipeline.camera_plan_confirmed_at) {
+    if (!pipeline.camera_intent_confirmed_at) {
       return new Response(
-        JSON.stringify({ 
-          error: "Camera plan must be confirmed before generating renders",
-          error_code: "CAMERA_PLAN_REQUIRED"
+        JSON.stringify({
+          error: "Camera intent must be confirmed before generating renders",
+          error_code: "CAMERA_INTENT_REQUIRED"
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );

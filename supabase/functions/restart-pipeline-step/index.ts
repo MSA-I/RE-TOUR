@@ -328,7 +328,7 @@ serve(async (req) => {
         updated_at: new Date().toISOString(),
         // Clear relevant timestamps when rolling back
         ...(step_number <= 3 ? { spaces_approved_at: null } : {}),
-        ...(step_number <= 4 ? { camera_plan_confirmed_at: null } : {}),
+        ...(step_number <= 4 ? { camera_intent_confirmed_at: null } : {}),
         ...(step_number <= 5 ? { renders_approved_at: null } : {}),
         ...(step_number <= 6 ? { panoramas_approved_at: null } : {}),
       })

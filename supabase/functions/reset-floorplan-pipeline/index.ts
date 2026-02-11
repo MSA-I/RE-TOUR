@@ -250,7 +250,7 @@ serve(async (req) => {
         global_style_bible: null,
         global_phase: null,
         spaces_approved_at: null,
-        camera_plan_confirmed_at: null, // Clear camera plan confirmation (revert to draft)
+        camera_intent_confirmed_at: null, // Clear camera intent confirmation (revert to draft)
         renders_approved_at: null,
         panoramas_approved_at: null,
         step3_job_id: null,

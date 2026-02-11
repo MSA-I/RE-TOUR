@@ -143,18 +143,20 @@ export const WHOLE_APARTMENT_PHASES = {
   detecting_spaces: "detecting_spaces",
   spaces_detected: "spaces_detected",
   // Step 4 (Internal) = Camera Intent (Spec Step 3 - decision-only layer)
-  // User places camera markers, binds templates A-H to spaces
-  camera_plan_pending: "camera_plan_pending",
-  camera_plan_confirmed: "camera_plan_confirmed",
-  // Step 5 (Internal) = Render + QA (Spec Step 4 & 5)
-  renders_pending: "renders_pending",
-  renders_in_progress: "renders_in_progress",
-  renders_review: "renders_review",
-  // Step 6 (Panoramas) - was Step 5
+  camera_intent_pending: "camera_intent_pending",
+  camera_intent_confirmed: "camera_intent_confirmed",
+  // Step 5 (Internal) = Prompt Templates + NanoBanana (Spec Step 4)
+  prompt_templates_pending: "prompt_templates_pending",
+  prompt_templates_confirmed: "prompt_templates_confirmed",
+  // Step 6 (Internal) = Outputs + QA (Spec Step 5)
+  outputs_pending: "outputs_pending",
+  outputs_in_progress: "outputs_in_progress",
+  outputs_review: "outputs_review",
+  // Step 7 (Internal) = Future Steps (Spec Steps 6-9)
   panoramas_pending: "panoramas_pending",
   panoramas_in_progress: "panoramas_in_progress",
   panoramas_review: "panoramas_review",
-  // Step 7 (Merge) - was Step 6
+  // Step 8 (Internal) = Final Approval (Spec Step 10)
   merging_pending: "merging_pending",
   merging_in_progress: "merging_in_progress",
   merging_review: "merging_review",
@@ -165,16 +167,6 @@ export const WHOLE_APARTMENT_PHASES = {
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  * PHASE → STEP CONTRACT (AUTHORITATIVE)
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * ⚠️  WARNING: DO NOT MODIFY WITHOUT UPDATING ALL LOCATIONS  ⚠️
- *
- * This mapping MUST be kept in sync with:
- *   1. supabase/functions/_shared/pipeline-phase-step-contract.ts
- *   2. Database trigger: enforce_phase_step_consistency (migration SQL)
- *
- * Internal step numbers are preserved (no renumbering).
- * Step names updated for semantic alignment with authoritative spec.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export const PHASE_STEP_MAP: Record<string, number> = {
@@ -200,40 +192,33 @@ export const PHASE_STEP_MAP: Record<string, number> = {
   spaces_detected: 3,
 
   // Step 4 (Internal) = Camera Intent (Spec: Step 3 - decision-only layer)
-  camera_plan_pending: 4,
-  camera_plan_confirmed: 4,
+  camera_intent_pending: 4,
+  camera_intent_confirmed: 4,
 
-  // Step 5 (Internal) = Render + QA (Spec: Step 4 & 5 - prompts + outputs + QA)
-  renders_pending: 5,
-  renders_in_progress: 5,
-  renders_review: 5,
+  // Step 5 (Internal) = Prompt Templates + NanoBanana (Spec: Step 4)
+  prompt_templates_pending: 5,
+  prompt_templates_confirmed: 5,
 
-  // Step 6 (Internal) = Panorama Polish (Spec: Step 8 - EXTERNAL, not in Phase 1)
-  panoramas_pending: 6,
-  panoramas_in_progress: 6,
-  panoramas_review: 6,
+  // Step 6 (Internal) = Outputs + QA (Spec: Step 5)
+  outputs_pending: 6,
+  outputs_in_progress: 6,
+  outputs_review: 6,
 
-  // Step 7 (Internal) = Final Approval (Spec: Step 10 - lock & archive)
-  merging_pending: 7,
-  merging_in_progress: 7,
-  merging_review: 7,
-  completed: 7,
+  // Step 7+ (Internal) = Future Steps (Spec: Steps 6-9)
+  panoramas_pending: 7,
+  panoramas_in_progress: 7,
+  panoramas_review: 7,
+
+  // Step 8 (Internal) = Final Approval (Spec: Step 10)
+  merging_pending: 8,
+  merging_in_progress: 8,
+  merging_review: 8,
+  completed: 8,
 
   // Terminal/Error
   failed: 0,
 };
 
-/**
- * Legal phase transitions for continue actions.
- * Maps from a "review" or "confirmed" phase to the next "pending" phase.
- *
- * ⚠️  WARNING: Update this when adding new phases  ⚠️
- *
- * FLOW ORDER (Semantic alignment with spec):
- * Step 2 (style_review) → Step 3 (detect_spaces_pending) [Space Scan]
- * Step 3 (spaces_detected) → Step 4 (camera_plan_pending) [Camera Intent]
- * Step 4 (camera_plan_confirmed) → Step 5 (renders_pending) [Render + QA]
- */
 export const LEGAL_PHASE_TRANSITIONS: Record<string, string> = {
   // Step 0 → Step 1
   "space_analysis_complete": "top_down_3d_pending",
@@ -242,93 +227,52 @@ export const LEGAL_PHASE_TRANSITIONS: Record<string, string> = {
   // Step 2 → Step 3 (Space Scan)
   "style_review": "detect_spaces_pending",
   // Step 3 → Step 4 (Camera Intent)
-  "spaces_detected": "camera_plan_pending",
-  // Step 4 → Step 5 (Render + QA)
-  "camera_plan_confirmed": "renders_pending",
-  // Step 5 → Step 6 (Panorama Polish - EXTERNAL, skip in Phase 1)
-  "renders_review": "panoramas_pending",
-  // Step 6 → Step 7 (Final Approval - skip in Phase 1)
+  "spaces_detected": "camera_intent_pending",
+  // Step 4 → Step 5 (Prompt Templates)
+  "camera_intent_confirmed": "prompt_templates_pending",
+  // Step 5 → Step 6 (Outputs + QA)
+  "prompt_templates_confirmed": "outputs_pending",
+  // Step 6 → Step 7 (Future / Panoramas)
+  "outputs_review": "panoramas_pending",
+  // Step 7 → Step 8 (Final Approval)
   "panoramas_review": "merging_pending",
-  // Step 7 → Complete
   "merging_review": "completed",
 };
 
-/**
- * Step names aligned with authoritative pipeline spec.
- * Internal step numbers remain unchanged (semantic alignment only).
- *
- * Spec mapping:
- * - Internal Step 0 = Spec Step 0 (Input Analysis: 0.1 Design Reference + 0.2 Space Scan)
- * - Internal Step 1 = Spec Step 1 (Realistic 2D Plan)
- * - Internal Step 2 = Spec Step 2 (Style Application)
- * - Internal Step 3 = Spec Step 0.2 (Space Scan - detect spaces)
- * - Internal Step 4 = Spec Step 3 (Camera Intent - decision-only layer)
- * - Internal Step 5 = Spec Step 4 & 5 (Prompt Templates + NanoBanana + QA)
- * - Internal Step 6 = Spec Step 8 (Panorama Polish - EXTERNAL, Phase 1 skips)
- * - Internal Step 7 = Spec Step 10 (Final Approval - Phase 1 skips)
- */
 export const WHOLE_APARTMENT_STEP_NAMES = [
-  "Input Analysis (0.1 + 0.2)", // Step 0 (Spec: 0.1 Design Reference + 0.2 Space Scan) - NOW SPLIT
-  "Realistic 2D Plan",          // Step 1 (Spec: Step 1)
-  "Style Application",          // Step 2 (Spec: Step 2)
-  "Space Scan",                 // Step 3 (Internal legacy, mapped to Spec 0.2)
-  "Camera Intent",              // Step 4 (Internal, mapped to Spec Step 3 - Templates A-H)
-  "Render + QA",                // Step 5 (Internal, mapped to Spec Steps 4 & 5)
-  "Capability Slots",           // Step 6 (Future/Disabled - manual camera planning)
-  "Final Approval",             // Step 7 (Spec: Step 10 - lock & archive)
+  "Input Analysis (0.1 + 0.2)",    // Step 0
+  "Realistic 2D Plan",              // Step 1
+  "Style Application",              // Step 2
+  "Space Scan",                      // Step 3 (Internal, maps to Spec 0.2)
+  "Camera Intent (Decision-Only)",  // Step 4 (Spec Step 3)
+  "Prompt Templates + NanoBanana",  // Step 5 (NEW - Spec Step 4)
+  "Outputs + QA",                   // Step 6 (Spec Step 5)
+  "Future Capabilities",            // Step 7 (Spec Steps 6-9 placeholder)
+  "Final Approval",                 // Step 8 (Spec Step 10)
 ];
 
-/**
- * Step badges for UI display
- * Maps step index to badge text (null = no badge)
- */
 export const STEP_BADGES: Record<number, string | null> = {
   0: null,
   1: null,
   2: null,
   3: null,
-  4: "Decision-Only",      // Camera Intent (Step 3 in spec)
+  4: "Decision-Only",
   5: null,
-  6: "Future / Disabled",  // Capability Slots (manual camera planning)
-  7: null,
+  6: null,
+  7: "Future",
+  8: null,
 };
 
-/**
- * Step 0 sub-steps (split into 0.1 and 0.2)
- */
-export const STEP_0_SUBSTEPS = [
-  {
-    id: "0.1",
-    name: "Design Reference Scan",
-    description: "Analyze style, colors, and materials from reference images",
-    optional: true,
-  },
-  {
-    id: "0.2",
-    name: "Space Scan",
-    description: "Detect rooms, zones, and spatial relationships from floor plan",
-    required: true,
-  },
-];
-
-/**
- * Locked Pipeline Display Structure (per authoritative spec)
- * User-facing step labels and numbering for the top stepper.
- * Internal step indices (0-7) remain unchanged for state machine compatibility.
- */
 export const LOCKED_PIPELINE_DISPLAY = [
-  { stepNum: "0.1", label: "Design Ref", internalStep: 0, futurePhase: false },
-  { stepNum: "0.2", label: "Space Scan", internalStep: 0, futurePhase: false },
+  { stepNum: "0.1", label: "Design Ref", internalStep: 0, futurePhase: false, optional: true },
+  { stepNum: "0.2", label: "Space Scan", internalStep: 3, futurePhase: false },
   { stepNum: "1", label: "2D Plan", internalStep: 1, futurePhase: false },
   { stepNum: "2", label: "Style", internalStep: 2, futurePhase: false },
   { stepNum: "3", label: "Camera Intent", internalStep: 4, futurePhase: false },
-  { stepNum: "4", label: "Prompts", internalStep: 5, futurePhase: false },
-  { stepNum: "5", label: "Outputs+QA", internalStep: 5, futurePhase: false },
-  { stepNum: "6", label: "Marble", internalStep: 6, futurePhase: true },
-  { stepNum: "7", label: "Intermediate", internalStep: 6, futurePhase: true },
-  { stepNum: "8", label: "Panorama", internalStep: 6, futurePhase: true },
-  { stepNum: "9", label: "Final QA", internalStep: 6, futurePhase: true },
-  { stepNum: "10", label: "Final Approval", internalStep: 7, futurePhase: false },
+  { stepNum: "4", label: "Prompts+Gen", internalStep: 5, futurePhase: false },
+  { stepNum: "5", label: "Outputs+QA", internalStep: 6, futurePhase: false },
+  { stepNum: "6-9", label: "Future", internalStep: 7, futurePhase: true },
+  { stepNum: "10", label: "Approval", internalStep: 8, futurePhase: false },
 ];
 
 // ============= Main Hook =============
@@ -793,6 +737,42 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     },
   });
 
+  // Save Camera Intents - Step 4 (Decision-Only)
+  const saveCameraIntents = useMutation({
+    mutationFn: async ({ pipelineId, styledImageUploadId }: {
+      pipelineId: string;
+      styledImageUploadId: string;
+    }) => {
+      const { data, error } = await supabase.functions.invoke("save-camera-intents", {
+        body: { pipeline_id: pipelineId, styled_image_upload_id: styledImageUploadId },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      toast({ title: "Camera Intents Generated", description: "Review suggestions for each space" });
+    },
+  });
+
+  // Compose Final Prompts - Step 5 (Templates + NanoBanana)
+  const composeFinalPrompts = useMutation({
+    mutationFn: async ({ pipelineId, selectedIntentIds }: {
+      pipelineId: string;
+      selectedIntentIds: string[];
+    }) => {
+      const { data, error } = await supabase.functions.invoke("compose-final-prompts", {
+        body: { pipeline_id: pipelineId, selected_intent_ids: selectedIntentIds },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      toast({ title: "Prompts Finalized", description: "Starting image generation..." });
+    },
+  });
+
   // Run Render for a Space (A or B)
   const runSpaceRender = useMutation({
     mutationFn: async ({
@@ -1125,7 +1105,8 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   });
 
   // Start batch renders for all active spaces
-  const runBatchRenders = useMutation({
+  // Start batch outputs for all queued final_prompts
+  const runBatchOutputs = useMutation({
     mutationFn: async ({
       pipelineId,
       styledImageUploadId,
@@ -1133,7 +1114,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
       pipelineId: string;
       styledImageUploadId: string;
     }) => {
-      const { data, error } = await supabase.functions.invoke("run-batch-space-renders", {
+      const { data, error } = await supabase.functions.invoke("run-batch-space-outputs", {
         body: { pipeline_id: pipelineId, styled_image_upload_id: styledImageUploadId },
       });
       if (error) throw error;
@@ -1142,6 +1123,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["whole-apartment-spaces", pipelineId] });
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      queryClient.invalidateQueries({ queryKey: ["final-prompts", pipelineId] });
     },
   });
 
@@ -1833,7 +1815,9 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     runMerge360,
     // Batch mutations (Step 4-6 parallel processing)
     advancePipeline,
-    runBatchRenders,
+    saveCameraIntents,
+    composeFinalPrompts,
+    runBatchOutputs,
     runBatchPanoramas,
     runBatchMerges,
     // Per-space control

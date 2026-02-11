@@ -133,6 +133,8 @@ export function useFloorplanPipelines(projectId: string) {
       const isWholeApartment = pipelineMode === "whole_apartment";
       const initialStatus = isWholeApartment ? "step1_pending" : `step${startFromStep}_pending`;
       const initialPhase = isWholeApartment ? "upload" : null;
+      // For whole_apartment mode: phase "upload" expects step 0
+      const initialStep = isWholeApartment ? 0 : startFromStep;
 
       const { data, error } = await supabase
         .from("floorplan_pipelines")
@@ -141,7 +143,7 @@ export function useFloorplanPipelines(projectId: string) {
           owner_id: user.id,
           floor_plan_upload_id: floorPlanUploadId,
           status: initialStatus,
-          current_step: startFromStep,
+          current_step: initialStep,
           output_resolution: outputResolution,
           aspect_ratio: aspectRatio,
           step_outputs: Object.keys(stepOutputs).length > 0 ? stepOutputs : null,
