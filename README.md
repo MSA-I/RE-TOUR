@@ -1,8 +1,8 @@
 # RE:TOUR - AI-Powered Interior Design Pipeline
 
-## Project info
+## Project Info
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+Self-hosted interior design pipeline (React + Vite + Supabase)
 
 ## Pipeline Documentation
 
@@ -35,21 +35,11 @@
 - **[Langfuse Integration](docs/LANGFUSE_INTEGRATION.md)** - Tracing and diagnostics setup
 - **[QA Feedback Fix Summary](docs/QA_FEEDBACK_FIX_SUMMARY.md)** - Recent QA improvements
 
-## How can I edit this code?
-
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
+## How to Work with This Code
 
 **Use your preferred IDE**
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+Requirements: Node.js & npm - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
 
 Follow these steps:
 
@@ -67,19 +57,23 @@ npm i
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+**Deploy Backend Functions**
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```sh
+# Deploy Supabase edge functions
+supabase functions deploy generate-camera-prompts
+supabase functions deploy run-pipeline-step
+```
 
-**Use GitHub Codespaces**
+**Build and Deploy Frontend**
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```sh
+# Build for production
+npm run build
+
+# The dist/ folder contains production-ready files
+# Deploy using your preferred method (Vercel, Netlify, nginx, etc.)
+```
 
 ## What technologies are used for this project?
 
@@ -93,12 +87,14 @@ This project is built with:
 
 ## How can I deploy this project?
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+This is a self-hosted project with multiple deployment options:
 
-## Can I connect a custom domain to my Lovable project?
+**Frontend Deployment**:
+- Vercel: `vercel --prod`
+- Netlify: `netlify deploy --prod --dir=dist`
+- Self-hosted: Copy `dist/` folder to your web server
+- Docker: Build a container with nginx serving the `dist/` folder
 
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+**Backend Deployment**:
+- Supabase Edge Functions (already deployed)
+- See `DEPLOYMENT_READY.md` for detailed instructions
