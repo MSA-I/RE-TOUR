@@ -19,6 +19,7 @@ import {
   logGeneration,
   logSpan,
   updateTrace,
+  flushLangfuse,
 } from "../_shared/langfuse-client.ts";
 
 const corsHeaders = {
@@ -110,10 +111,10 @@ serve(async (req) => {
     // Test 2: Log a generation (simulated LLM call)
     if (runGeneration && traceId) {
       const startTime = new Date();
-      
+
       // Simulate some processing time
       await new Promise((resolve) => setTimeout(resolve, 100));
-      
+
       const endTime = new Date();
 
       const generationResult = await logGeneration({
@@ -153,10 +154,10 @@ serve(async (req) => {
     // Test 3: Log a span (non-LLM operation)
     if (runSpan && traceId) {
       const startTime = new Date();
-      
+
       // Simulate some processing
       await new Promise((resolve) => setTimeout(resolve, 50));
-      
+
       const endTime = new Date();
 
       const spanResult = await logSpan({
@@ -201,6 +202,12 @@ serve(async (req) => {
     const allSuccessful = Object.entries(results)
       .filter(([key]) => typeof results[key] === "object" && results[key] !== null)
       .every(([, value]) => (value as { success?: boolean }).success !== false);
+
+    // CRITICAL: Flush Langfuse events before returning
+    // Without this flush, all queued events remain in memory and are never sent to Langfuse
+    console.log("[langfuse-test] Flushing Langfuse events...");
+    await flushLangfuse();
+    console.log("[langfuse-test] Flush complete");
 
     return new Response(
       JSON.stringify({

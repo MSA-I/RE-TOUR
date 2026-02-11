@@ -809,22 +809,7 @@ export function useFloorplanPipelines(projectId: string) {
         delete stepOutputs[`step${step}`];
       }
 
-      console.log(`[Pipeline GoBack] Deleting ${outputsToDelete.length} outputs from steps ${targetStep}-4`);
-
-      // Delete from uploads table (this also triggers storage cleanup from Creations)
-      if (outputsToDelete.length > 0) {
-        for (const uploadId of outputsToDelete) {
-          const { error: deleteError } = await supabase
-            .from("uploads")
-            .delete()
-            .eq("id", uploadId)
-            .eq("owner_id", user.id);
-
-          if (deleteError) {
-            console.warn(`[Pipeline GoBack] Failed to delete upload ${uploadId}:`, deleteError);
-          }
-        }
-      }
+      console.log(`[Pipeline GoBack] Preserving ${outputsToDelete.length} outputs from steps ${targetStep}-4 for Creations`);
 
       // Delete reviews for steps >= targetStep
       await supabase
@@ -854,7 +839,7 @@ export function useFloorplanPipelines(projectId: string) {
 
       if (updateError) throw updateError;
 
-      return { pipelineId, targetStep, deletedCount: outputsToDelete.length };
+      return { pipelineId, targetStep, preservedCount: outputsToDelete.length };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", projectId] });
@@ -863,7 +848,7 @@ export function useFloorplanPipelines(projectId: string) {
       queryClient.invalidateQueries({ queryKey: ["creations", projectId] });
       toast({
         title: `Returned to Step ${data.targetStep}`,
-        description: `${data.deletedCount} output(s) deleted`
+        description: `${data.preservedCount} output(s) preserved in Creations`
       });
     },
     onError: (error) => {

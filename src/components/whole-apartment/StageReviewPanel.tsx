@@ -342,7 +342,9 @@ export const StageReviewPanel = memo(function StageReviewPanel({
             ...buildSnapshot(stepNumber),
             user_score: feedback.score,
           },
-          qaWasWrong: feedback.qaWasWrong
+          qaWasWrong: feedback.qaWasWrong,
+          tags: feedback.tags,
+          tags_type: feedback.tags_type,
         });
       }
 
@@ -387,7 +389,9 @@ export const StageReviewPanel = memo(function StageReviewPanel({
           qaOriginalStatus: aiQAFailed ? "rejected" : aiQAPassed ? "approved" : "pending",
           qaOriginalReasons: qaReasons as unknown[],
           contextSnapshot: { ...buildSnapshot(stepNumber), user_score: feedback.score },
-          qaWasWrong: feedback.qaWasWrong
+          qaWasWrong: feedback.qaWasWrong,
+          tags: feedback.tags,
+          tags_type: feedback.tags_type,
         });
       }
 

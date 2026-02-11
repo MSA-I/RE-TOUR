@@ -62,12 +62,12 @@ serve(async (req) => {
     for (const key of Object.keys(stepOutputs)) {
       if (key.startsWith("step")) {
         const stepData = stepOutputs[key];
-        
+
         // Single output format
         if (stepData?.output_upload_id && stepData.output_upload_id !== pipeline.floor_plan_upload_id) {
           outputUploadIds.add(stepData.output_upload_id);
         }
-        
+
         // Multi-output array format
         if (stepData?.outputs && Array.isArray(stepData.outputs)) {
           for (const output of stepData.outputs) {
@@ -146,7 +146,7 @@ serve(async (req) => {
 
     const outputUploadIdList = Array.from(outputUploadIds);
     console.log(`Found ${outputUploadIdList.length} pipeline-generated uploads to DELETE`);
-    
+
     // Delete new pipeline engine rows first (they may reference uploads)
     if (runIds.length > 0) {
       await supabaseAdmin.from("pipeline_artifacts").delete().in("run_id", runIds);
@@ -174,7 +174,8 @@ serve(async (req) => {
       console.warn("Failed to delete step attempts:", attemptsError);
     }
 
-    // Delete pipeline-generated uploads from storage and database
+    // DISABLED: Pipeline-generated uploads are now PRESERVED for Creations
+    /*
     for (const uploadId of outputUploadIdList) {
       try {
         // Get upload details
@@ -210,6 +211,8 @@ serve(async (req) => {
         console.warn(`Error deleting upload ${uploadId}:`, err);
       }
     }
+    */
+    console.log(`Preserving ${outputUploadIdList.length} pipeline-generated uploads for Creations.`);
 
     // Delete pipeline events
     const { error: eventsError } = await supabaseAdmin
@@ -273,8 +276,8 @@ serve(async (req) => {
 
     console.log(`Pipeline ${pipeline_id} reset successfully`);
 
-    return new Response(JSON.stringify({ 
-      success: true, 
+    return new Response(JSON.stringify({
+      success: true,
       message: "Pipeline reset to step 0 (Space Analysis)",
       deleted_outputs: outputUploadIdList.length
     }), {
@@ -283,8 +286,8 @@ serve(async (req) => {
 
   } catch (error) {
     console.error("Reset pipeline error:", error);
-    return new Response(JSON.stringify({ 
-      error: error instanceof Error ? error.message : "Unknown error" 
+    return new Response(JSON.stringify({
+      error: error instanceof Error ? error.message : "Unknown error"
     }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" }

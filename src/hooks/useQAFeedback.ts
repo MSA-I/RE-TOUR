@@ -68,6 +68,10 @@ interface StoreQAFeedbackParams {
   qaOriginalReasons: unknown[];
   contextSnapshot: Record<string, unknown>;
   qaWasWrong: boolean;
+  /** NEW: Structured tags for learning system */
+  tags?: string[];
+  /** NEW: Tag type indicator - which tag set was used */
+  tags_type?: "approve" | "reject";
 }
 
 /**

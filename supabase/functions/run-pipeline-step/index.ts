@@ -2,9 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 import { encode as encodeBase64 } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 import { decode as decodeBase64 } from "https://deno.land/std@0.168.0/encoding/base64.ts";
-import { 
-  TEXT_OVERLAY_PRESERVATION_BLOCK, 
-  TEXT_OVERLAY_PRESERVATION_COMPACT, 
+import {
+  TEXT_OVERLAY_PRESERVATION_BLOCK,
+  TEXT_OVERLAY_PRESERVATION_COMPACT,
   TEXT_OVERLAY_QA_PROMPT,
   shouldApplyTextPreservation,
   shouldApplyTextPreservationForGeneration,
@@ -71,13 +71,13 @@ function getDownscaleFactor(base64: string, maxDimension: number): { needsDownsc
   if (!dims) {
     return { needsDownscale: false, dims: null, scale: 1.0 };
   }
-  
+
   const longestSide = Math.max(dims.width, dims.height);
-  
+
   if (longestSide <= maxDimension) {
     return { needsDownscale: false, dims, scale: 1.0 };
   }
-  
+
   return { needsDownscale: true, dims, scale: maxDimension / longestSide };
 }
 
@@ -202,31 +202,31 @@ function verifyResolution(dims: ImageDimensions | null, qualityTier: string, opt
   isProviderLimitation?: boolean;
 } {
   const { isPanoramaTask = false, provider = "nano_banana" } = options;
-  
+
   const minPixels: Record<string, number> = {
     "1K": 900,    // At least 900px on shortest side
     "2K": 1800,   // At least 1800px on shortest side
     "4K": 3600,   // At least 3600px on shortest side (10% tolerance from 4096)
   };
-  
+
   if (!dims) {
     return { passed: false, actualPixels: 0, expectedMin: minPixels[qualityTier] || 0, message: "Could not read image dimensions" };
   }
-  
+
   const shortestSide = Math.min(dims.width, dims.height);
   const expectedMin = minPixels[qualityTier] || 0;
   const aspectRatio = dims.width / dims.height;
-  
+
   // For panorama tasks with Nano Banana, relax the strict 2:1 requirement
   // Accept wider images (aspect >= 1.8) without failing, just log as info
   const isNanoBananaPanorama = isPanoramaTask && provider === "nano_banana";
-  
+
   if (isNanoBananaPanorama) {
     // For Nano Banana panoramas, only check if it's reasonably wide (aspect >= 1.6)
     // Don't fail on resolution, just provide info
     const isWideEnough = aspectRatio >= 1.6;
     const isAcceptableResolution = shortestSide >= (minPixels["1K"] || 900); // Minimum 1K for any output
-    
+
     if (isWideEnough && isAcceptableResolution) {
       return {
         passed: true,
@@ -236,7 +236,7 @@ function verifyResolution(dims: ImageDimensions | null, qualityTier: string, opt
         isProviderLimitation: aspectRatio < 1.9 || shortestSide < expectedMin
       };
     }
-    
+
     // If aspect ratio is too narrow, mark as low confidence but don't fail hard
     if (!isWideEnough) {
       return {
@@ -248,15 +248,15 @@ function verifyResolution(dims: ImageDimensions | null, qualityTier: string, opt
       };
     }
   }
-  
+
   // Standard resolution check for non-panorama tasks or other providers
   const passed = shortestSide >= expectedMin;
-  
+
   return {
     passed,
     actualPixels: shortestSide,
     expectedMin,
-    message: passed 
+    message: passed
       ? `Resolution OK: ${dims.width}×${dims.height} (${dims.format})`
       : `Resolution MISMATCH: Expected ${qualityTier} (min ${expectedMin}px), got ${dims.width}×${dims.height}`
   };
@@ -407,15 +407,15 @@ If the plan has ONLY standard 90° orthogonal walls:
 
 function buildScaleGuidanceBlock(analysis: DimensionAnalysisResult): string {
   let scaleBlock: string;
-  
+
   if (!analysis.dimensions_found || analysis.extracted_dimensions.length === 0) {
     scaleBlock = `SCALE & PROPORTIONS:
 - Preserve proportions exactly as shown in the floor plan.
 - Maintain accurate room shapes and relative sizes.
 - No dimension annotations detected; rely on visual proportions only.`;
   } else {
-    const unitLabel = analysis.units === "metric" ? "meters/centimeters" : 
-                      analysis.units === "imperial" ? "feet/inches" : "detected units";
+    const unitLabel = analysis.units === "metric" ? "meters/centimeters" :
+      analysis.units === "imperial" ? "feet/inches" : "detected units";
 
     const keyDimensions = analysis.extracted_dimensions
       .filter(d => d.confidence >= 0.8)
@@ -458,7 +458,7 @@ CRITICAL SCALE REQUIREMENTS:
 
   // Add wall geometry preservation block if geometry was analyzed
   const geometryBlock = buildGeometryPreservationBlock(analysis.wall_geometry);
-  
+
   return `${scaleBlock}
 
 ${geometryBlock}`;
@@ -536,7 +536,7 @@ interface SpaceAnalysisData {
  */
 function normalizeDetectedItems(rawItems: RawDetectedItem[] | undefined | null): DetectedItem[] {
   if (!rawItems || !Array.isArray(rawItems)) return [];
-  
+
   return rawItems.map(item => {
     // Handle simple string format: "sofa" or "bed"
     if (typeof item === "string") {
@@ -547,7 +547,7 @@ function normalizeDetectedItems(rawItems: RawDetectedItem[] | undefined | null):
         note: null
       };
     }
-    
+
     // Handle object format with various possible keys
     if (typeof item === "object" && item !== null) {
       const itemObj = item as Record<string, unknown>;
@@ -559,7 +559,7 @@ function normalizeDetectedItems(rawItems: RawDetectedItem[] | undefined | null):
         note: (typeof itemObj.note === "string" ? itemObj.note : null)
       };
     }
-    
+
     // Fallback for unexpected formats
     return {
       item_type: String(item),
@@ -576,9 +576,9 @@ function normalizeDetectedItems(rawItems: RawDetectedItem[] | undefined | null):
 function isMasterBedroom(usage: string | undefined | null): boolean {
   if (!usage) return false;
   const lowerUsage = usage.toLowerCase();
-  return lowerUsage.includes("master") || 
-         lowerUsage.includes("primary bedroom") ||
-         lowerUsage.includes("main bedroom");
+  return lowerUsage.includes("master") ||
+    lowerUsage.includes("primary bedroom") ||
+    lowerUsage.includes("main bedroom");
 }
 
 /**
@@ -602,7 +602,7 @@ function getDetectedBedInfo(items: DetectedItem[]): { hasBed: boolean; isDouble:
  */
 function isSmallRoom(dimensionsSummary: string | null | undefined): boolean {
   if (!dimensionsSummary) return false;
-  
+
   // Parse dimension strings like "approx. 3m x 3m" or "approx 2.5m x 3.5m"
   const match = dimensionsSummary.match(/(\d+(?:\.\d+)?)\s*m?\s*[x×]\s*(\d+(?:\.\d+)?)\s*m?/i);
   if (match) {
@@ -625,7 +625,7 @@ function buildRoomFurnitureConstraints(room: SpaceAnalysisEntry): string {
   const isMaster = isMasterBedroom(usage);
   const bedInfo = getDetectedBedInfo(items);
   const isSmall = isSmallRoom(room.dimensions_summary);
-  
+
   // Format detected items list
   const itemsList = items
     .filter(i => i.confidence >= 0.6)
@@ -635,9 +635,9 @@ function buildRoomFurnitureConstraints(room: SpaceAnalysisEntry): string {
       if (i.note) itemStr += ` [${i.note}]`;
       return itemStr;
     });
-  
+
   let constraints = `\n  ${usage}:`;
-  
+
   // Add detected furniture
   if (itemsList.length > 0) {
     constraints += `\n    - DETECTED FURNITURE: ${itemsList.join(", ")}`;
@@ -645,7 +645,7 @@ function buildRoomFurnitureConstraints(room: SpaceAnalysisEntry): string {
   } else {
     constraints += `\n    - NO FURNITURE DETECTED: Use conservative defaults for room type`;
   }
-  
+
   // Bed size rules for bedrooms
   if (usage.toLowerCase().includes("bedroom")) {
     if (isMaster) {
@@ -672,12 +672,12 @@ function buildRoomFurnitureConstraints(room: SpaceAnalysisEntry): string {
       }
     }
   }
-  
+
   // Dimension guidance
   if (room.dimensions_summary) {
     constraints += `\n    - ROOM SIZE: ${room.dimensions_summary} - scale furniture accordingly`;
   }
-  
+
   return constraints;
 }
 
@@ -690,14 +690,14 @@ function buildFurnitureConstraintsBlock(spaceAnalysis: SpaceAnalysisData | null 
 - Use standard furniture appropriate to each room type.
 - Scale all furniture realistically to room dimensions.`;
   }
-  
+
   const rooms = spaceAnalysis.rooms || [];
   if (rooms.length === 0) {
     return `FURNITURE PLACEMENT:
 - Use standard furniture appropriate to each room type.
 - Scale all furniture realistically to room dimensions.`;
   }
-  
+
   let block = `FURNITURE & LAYOUT CONSTRAINTS (LOCKED FROM SPACE ANALYSIS):
 - furniture_constraints_locked: TRUE
 - Source: AI Space Analysis detected ${rooms.length} room(s)
@@ -707,7 +707,7 @@ ROOM-SPECIFIC REQUIREMENTS:`;
   for (const room of rooms) {
     block += buildRoomFurnitureConstraints(room);
   }
-  
+
   block += `
 
 CRITICAL FURNITURE RULES:
@@ -735,7 +735,7 @@ function buildStep2LayoutPreservationBlock(spaceAnalysis: SpaceAnalysisData | nu
 - ONLY CHANGE: Colors, materials, textures, lighting mood
 - DO NOT CHANGE: Furniture positions, types, or sizes`;
   }
-  
+
   const rooms = spaceAnalysis.rooms;
   let block = `LAYOUT & FURNITURE PRESERVATION (LOCKED - Step 2 is STYLING ONLY):
 
@@ -776,7 +776,7 @@ async function extractWallGeometryFromFloorPlan(
   apiKey: string
 ): Promise<WallGeometryResult> {
   console.log(`[GEOMETRY EXTRACTION] Analyzing floor plan for wall geometry...`);
-  
+
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -819,7 +819,7 @@ async function extractWallGeometryFromFloorPlan(
 
     const result = await response.json();
     const content = result.choices?.[0]?.message?.content || "";
-    
+
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.warn(`[GEOMETRY EXTRACTION] No JSON found in response`);
@@ -844,18 +844,18 @@ async function extractWallGeometryFromFloorPlan(
       confidence: parsed.confidence ?? 0.5,
       detected_features: parsed.detected_features || []
     };
-    
-    const hasNonStandard = geometryResult.has_non_orthogonal_walls || 
-                           geometryResult.has_curved_walls || 
-                           geometryResult.has_diagonal_corners ||
-                           geometryResult.has_chamfers;
-    
+
+    const hasNonStandard = geometryResult.has_non_orthogonal_walls ||
+      geometryResult.has_curved_walls ||
+      geometryResult.has_diagonal_corners ||
+      geometryResult.has_chamfers;
+
     console.log(`[GEOMETRY EXTRACTION] Non-standard geometry: ${hasNonStandard}`);
     if (hasNonStandard) {
       console.log(`[GEOMETRY EXTRACTION] Features detected:`, geometryResult.detected_features.length);
       console.log(`[GEOMETRY EXTRACTION] Types: angled=${geometryResult.has_non_orthogonal_walls}, curved=${geometryResult.has_curved_walls}, diagonal=${geometryResult.has_diagonal_corners}, chamfer=${geometryResult.has_chamfers}`);
     }
-    
+
     return geometryResult;
   } catch (error) {
     console.error(`[GEOMETRY EXTRACTION] Error:`, error);
@@ -876,22 +876,22 @@ async function extractDimensionsAndGeometryFromFloorPlan(
   apiKey: string
 ): Promise<DimensionAnalysisResult> {
   console.log(`[FLOOR PLAN ANALYSIS] Starting dimension and geometry extraction...`);
-  
+
   // Run dimension extraction and geometry extraction in parallel
   const [dimensionResult, geometryResult] = await Promise.all([
     extractDimensionsOnly(imageBase64, apiKey),
     extractWallGeometryFromFloorPlan(imageBase64, apiKey)
   ]);
-  
+
   // Combine results
   const analysisResult: DimensionAnalysisResult = {
     ...dimensionResult,
     wall_geometry: geometryResult
   };
-  
+
   // Rebuild scale guidance with geometry info included
   analysisResult.scale_guidance_text = buildScaleGuidanceBlock(analysisResult);
-  
+
   return analysisResult;
 }
 
@@ -900,7 +900,7 @@ async function extractDimensionsOnly(
   apiKey: string
 ): Promise<DimensionAnalysisResult> {
   console.log(`[DIMENSION EXTRACTION] Starting dimension extraction from floor plan...`);
-  
+
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -941,7 +941,7 @@ async function extractDimensionsOnly(
 
     const result = await response.json();
     const content = result.choices?.[0]?.message?.content || "";
-    
+
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.warn(`[DIMENSION EXTRACTION] No JSON found in response`);
@@ -963,13 +963,13 @@ async function extractDimensionsOnly(
       scale_guidance_text: "",
       scale_locked: parsed.dimensions_found ?? false
     };
-    
+
     console.log(`[DIMENSION EXTRACTION] Found ${analysisResult.extracted_dimensions.length} dimensions`);
     console.log(`[DIMENSION EXTRACTION] Units: ${analysisResult.units}, Scale locked: ${analysisResult.scale_locked}`);
     if (analysisResult.dimensions_found) {
       console.log(`[DIMENSION EXTRACTION] Key dimensions:`, analysisResult.extracted_dimensions.slice(0, 3).map(d => d.raw_text));
     }
-    
+
     return analysisResult;
   } catch (error) {
     console.error(`[DIMENSION EXTRACTION] Error:`, error);
@@ -1251,7 +1251,7 @@ function parseRejectionReason(reason: string): {
   suggestedChange: string;
 } {
   const lower = reason.toLowerCase();
-  
+
   if (lower.includes("same angle") || lower.includes("too similar") || lower.includes("identical")) {
     return { changeViewpoint: true, changeYaw: true, changeFraming: false, suggestedChange: "different_viewpoint" };
   }
@@ -1264,7 +1264,7 @@ function parseRejectionReason(reason: string): {
   if (lower.includes("not realistic") || lower.includes("distorted")) {
     return { changeViewpoint: false, changeYaw: false, changeFraming: true, suggestedChange: "normal_lens" };
   }
-  
+
   // Default: change at least viewpoint and yaw
   return { changeViewpoint: true, changeYaw: true, changeFraming: false, suggestedChange: "full_change" };
 }
@@ -1275,17 +1275,17 @@ function selectStep3CameraPreset(
   rejectionReason?: string
 ): typeof STEP_3_CAMERA_PRESETS[0] | null {
   const availablePresets = STEP_3_CAMERA_PRESETS.filter(p => !usedPresetIds.includes(p.id));
-  
+
   if (availablePresets.length === 0) {
     console.log("[Step 3] All presets exhausted, cycling with increased variation");
     // Reset and use first available with modified prompt
     return STEP_3_CAMERA_PRESETS[0];
   }
-  
+
   if (rejectionReason) {
     const adjustments = parseRejectionReason(rejectionReason);
     console.log(`[Step 3] Rejection analysis:`, adjustments);
-    
+
     // Find a preset that differs in the required ways
     const lastUsed = STEP_3_CAMERA_PRESETS.find(p => p.id === usedPresetIds[usedPresetIds.length - 1]);
     if (lastUsed) {
@@ -1294,7 +1294,7 @@ function selectStep3CameraPreset(
         if (adjustments.changeViewpoint && preset.viewpoint !== lastUsed.viewpoint) changes++;
         if (adjustments.changeYaw && preset.yaw_target !== lastUsed.yaw_target) changes++;
         if (adjustments.changeFraming && preset.framing !== lastUsed.framing) changes++;
-        
+
         // Must change at least 2 parameters
         if (changes >= 2) {
           console.log(`[Step 3] Selected preset ${preset.id} with ${changes} changes from previous`);
@@ -1303,7 +1303,7 @@ function selectStep3CameraPreset(
       }
     }
   }
-  
+
   // Default: return first available
   console.log(`[Step 3] Using first available preset: ${availablePresets[0].id}`);
   return availablePresets[0];
@@ -1334,9 +1334,9 @@ serve(async (req) => {
     // Check for internal retry (service-to-service call with service role key)
     const isInternalRetry = req.headers.get("x-internal-retry") === "true";
     const retryUserId = req.headers.get("x-retry-user-id");
-    
+
     let user: { id: string } | null = null;
-    
+
     if (isInternalRetry && retryUserId) {
       // Internal retry from auto-retry mechanism - trust the user ID header
       // This is safe because only service role key can set x-internal-retry header
@@ -1360,7 +1360,7 @@ serve(async (req) => {
       }
       user = authData.user;
     }
-    
+
     if (!user) {
       throw new Error("Unauthorized");
     }
@@ -1370,16 +1370,13 @@ serve(async (req) => {
     if (!pipeline_id) {
       throw new Error("pipeline_id is required");
     }
-    
-    // Validate design_ref_upload_ids if provided
-    const designRefIds: string[] = Array.isArray(design_ref_upload_ids) ? design_ref_upload_ids : [];
-    
+
     // Style title for Step 2 (human-readable name from suggestion selection)
     const selectedStyleTitle: string | null = style_title || null;
-    
+
     // Number of outputs to generate (1-4 for Steps 2, 3, 4; always 1 for Step 1)
     const requestedOutputCount = Math.max(1, Math.min(4, parseInt(output_count) || 1));
-    
+
     // Auto-rerender tracking for panorama QA rejection
     const MAX_AUTO_RERENDER_ATTEMPTS = 4;
     const currentAutoAttempt = parseInt(auto_rerender_attempt) || 0;
@@ -1410,7 +1407,7 @@ serve(async (req) => {
       .single();
 
     const pipeline = pipelineData as any;
-    
+
     // Parse step output IDs from step_outputs to avoid memory issues with large prompts later
     // We extract just what we need here and avoid using the full step_outputs until persistence
     const initialOutputs = (pipeline?.step_outputs || {}) as Record<string, any>;
@@ -1423,7 +1420,23 @@ serve(async (req) => {
     const dimensionAnalysis = initialOutputs.dimension_analysis || null;
     const designReferenceIds = initialOutputs.design_reference_ids || null;
     const referenceStyleAnalysis = initialOutputs.reference_style_analysis || null;
-    
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // DESIGN REFERENCE DATA FLOW FIX: Ensure IDs are present for Step 2 logic
+    // Priority: 1) Request body, 2) DB step_outputs, 3) referenceStyleAnalysis metadata
+    // ═══════════════════════════════════════════════════════════════════════════
+    let designRefIds: string[] = Array.isArray(design_ref_upload_ids) ? design_ref_upload_ids : [];
+
+    if (designRefIds.length === 0) {
+      if (Array.isArray(initialOutputs.design_reference_ids)) {
+        designRefIds = initialOutputs.design_reference_ids;
+        console.log(`[run-pipeline-step] Using ${designRefIds.length} design reference(s) from database (design_reference_ids)`);
+      } else if (referenceStyleAnalysis?.design_ref_ids && Array.isArray(referenceStyleAnalysis.design_ref_ids)) {
+        designRefIds = referenceStyleAnalysis.design_ref_ids;
+        console.log(`[run-pipeline-step] Using ${designRefIds.length} design reference(s) from analysis metadata (design_ref_ids)`);
+      }
+    }
+
     // Clear reference to full step_outputs to free memory before heavy API calls
     delete pipeline.step_outputs;
 
@@ -1446,17 +1459,17 @@ serve(async (req) => {
 
     const currentStep = pipeline.current_step;
     const currentPhase = pipeline.whole_apartment_phase ?? "upload";
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // PHASE GUARD: Validate this function is allowed for current phase
     // ═══════════════════════════════════════════════════════════════════════════
     console.log(`[RUN_PIPELINE_STEP] Action ${actionId} - Pipeline ${pipeline_id} current phase: ${currentPhase}, step: ${currentStep}`);
-    
+
     // Step 0 (Space Analysis) is handled by run-space-analysis, NOT this function
     if (currentStep === 0) {
       console.error(`[RUN_PIPELINE_STEP] Phase mismatch: Step 0 should use run-space-analysis`);
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           error: "Step 0 (Space Analysis) should use run-space-analysis function, not run-pipeline-step. Please check frontend call routing.",
           hint: "Frontend routing should detect phase 'upload' or 'space_analysis_*' and route to run-space-analysis",
           current_phase: currentPhase,
@@ -1465,11 +1478,11 @@ serve(async (req) => {
         { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
+
     // Strict phase validation for Steps 1-2 only
     if (!ALLOWED_PHASES.includes(currentPhase)) {
       console.error(`[RUN_PIPELINE_STEP] Phase mismatch: expected one of [${ALLOWED_PHASES.join(", ")}], got "${currentPhase}"`);
-      
+
       // Provide helpful hints based on the actual phase
       let hint = "Check frontend routing configuration";
       if (currentPhase.startsWith("space_analysis") || currentPhase === "upload") {
@@ -1479,9 +1492,9 @@ serve(async (req) => {
       } else if (currentPhase.startsWith("renders") || currentPhase.startsWith("panoramas") || currentPhase.startsWith("merging")) {
         hint = "This phase should use run-batch-space-renders, run-batch-space-panoramas, or run-batch-space-merges";
       }
-      
+
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           error: `Phase mismatch: run-pipeline-step handles Steps 1-2 only, but pipeline is at phase "${currentPhase}"`,
           hint,
           expected_phases: ALLOWED_PHASES,
@@ -1499,14 +1512,14 @@ serve(async (req) => {
     // For step 4, derive camera position from previous step outputs or use sensible defaults
     let effectiveCameraPosition = camera_position || pipeline.camera_position;
     let effectiveForwardDirection = forward_direction || pipeline.forward_direction;
-    
+
     if (currentStep === 4 && (!effectiveCameraPosition || !effectiveForwardDirection)) {
       // Derive from Step 3 output if available
       if (step3CameraAngleFromDb) {
         // Use camera angle info from Step 3 to derive position (now eye-level only)
         const cameraInfo = (step3CameraAngleFromDb || "").toLowerCase();
         console.log(`[Step 4] Deriving camera from Step 3 camera angle: ${cameraInfo}`);
-        
+
         // Map eye-level room areas to panorama positions
         if (cameraInfo.includes("living")) {
           effectiveCameraPosition = effectiveCameraPosition || "center of the living room at eye-level";
@@ -1535,21 +1548,21 @@ serve(async (req) => {
         effectiveCameraPosition = effectiveCameraPosition || "center of the main living space at eye-level";
         effectiveForwardDirection = effectiveForwardDirection || "toward the main window or feature wall";
       }
-      
+
       console.log(`[Step 4] Using camera position: ${effectiveCameraPosition}, forward: ${effectiveForwardDirection}`);
     }
 
     // Update pipeline status AND whole_apartment_phase to running
     // CRITICAL: Setting whole_apartment_phase enables the "Live" indicator in the UI terminal
-    const runningPhase = currentStep === 1 ? "top_down_3d_running" : 
-                         currentStep === 2 ? "style_running" : 
-                         `step${currentStep}_running`;
-    
+    const runningPhase = currentStep === 1 ? "top_down_3d_running" :
+      currentStep === 2 ? "style_running" :
+        `step${currentStep}_running`;
+
     console.log(`[${actionName}] Setting whole_apartment_phase to: ${runningPhase}`);
-    
+
     await supabaseAdmin
       .from("floorplan_pipelines")
-      .update({ 
+      .update({
         status: `step${currentStep}_running`,
         whole_apartment_phase: runningPhase,
         camera_position: effectiveCameraPosition || pipeline.camera_position,
@@ -1576,10 +1589,10 @@ serve(async (req) => {
         step4: step4OutputId,
       };
       console.log(`[run-pipeline-step] Step ${currentStep}: Looking for previous step output in: ${Object.keys(stepOutputIds).join(', ')}`);
-      
+
       let prevStepOutput: string | null = null;
       let usedStepNumber = 0;
-      
+
       // Walk backwards from the previous step to find a valid output
       for (let stepNum = currentStep - 1; stepNum >= 1; stepNum--) {
         const key = `step${stepNum}`;
@@ -1590,12 +1603,12 @@ serve(async (req) => {
           break;
         }
       }
-      
+
       if (!prevStepOutput) {
         console.error(`[run-pipeline-step] No valid previous step output found for step ${currentStep}`);
         throw new Error(`No previous step output found. Please ensure at least step 1 has completed successfully.`);
       }
-      
+
       inputUploadId = prevStepOutput;
       console.log(`[run-pipeline-step] Step ${currentStep}: Using step ${usedStepNumber} output ${inputUploadId}`);
     }
@@ -1732,7 +1745,7 @@ serve(async (req) => {
     // Get prompt for current step
     let prompt: string;
     let selectedPresetId: string | null = null;
-    
+
     if (currentStep === 4) {
       prompt = (STEP_TEMPLATES[4] as Function)(effectiveCameraPosition, effectiveForwardDirection);
     } else if (currentStep === 3) {
@@ -1742,7 +1755,7 @@ serve(async (req) => {
       const step3Data = stepOutputs.step3 || {};
       const usedPresetIds: string[] = step3Data.used_preset_ids || [];
       const lastRejectionReason = step3Data.qa_reason;
-      
+
       // Check if user explicitly selected a preset
       if (step_3_preset_id) {
         const userSelectedPreset = STEP_3_CAMERA_PRESETS.find(p => p.id === step_3_preset_id);
@@ -1806,30 +1819,30 @@ OUTPUT: High-quality professional EYE-LEVEL interior photograph.`;
       // STEP 1: Extract dimensions AND wall geometry from floor plan BEFORE generating
       // ═══════════════════════════════════════════════════════════════
       await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "dimension_extraction", "Analyzing floor plan for dimensions and wall geometry...", (currentStep - 1) * 25 + 6);
-      
+
       let dimensionAnalysis: DimensionAnalysisResult;
       if (API_OPENAI) {
         dimensionAnalysis = await extractDimensionsAndGeometryFromFloorPlan(base64Image, API_OPENAI);
-        
+
         // Store dimension analysis in pipeline for use by later steps
         const stepOutputs = await fetchFullStepOutputs();
         stepOutputs.dimension_analysis = dimensionAnalysis;
-        
+
         await supabaseAdmin
           .from("floorplan_pipelines")
           .update({ step_outputs: stepOutputs })
           .eq("id", pipeline_id);
-        
+
         if (dimensionAnalysis.dimensions_found) {
-          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "dimensions_found", 
+          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "dimensions_found",
             `Found ${dimensionAnalysis.extracted_dimensions.length} dimension(s) - scale locked`, (currentStep - 1) * 25 + 7);
           console.log(`[Step 1] SCALE LOCKED from ${dimensionAnalysis.extracted_dimensions.length} dimensions`);
         } else {
-          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "no_dimensions", 
+          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "no_dimensions",
             "No dimension annotations found - using visual proportions", (currentStep - 1) * 25 + 7);
           console.log(`[Step 1] No dimensions found - relying on visual proportions`);
         }
-        
+
         // Report wall geometry detection
         const geo = dimensionAnalysis.wall_geometry;
         if (geo && (geo.has_non_orthogonal_walls || geo.has_curved_walls || geo.has_diagonal_corners || geo.has_chamfers)) {
@@ -1838,8 +1851,8 @@ OUTPUT: High-quality professional EYE-LEVEL interior photograph.`;
           if (geo.has_curved_walls) geoTypes.push("curved walls");
           if (geo.has_diagonal_corners) geoTypes.push("diagonal corners");
           if (geo.has_chamfers) geoTypes.push("chamfers");
-          
-          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "geometry_detected", 
+
+          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "geometry_detected",
             `Non-standard geometry detected: ${geoTypes.join(", ")} - geometry locked`, (currentStep - 1) * 25 + 8);
           console.log(`[Step 1] GEOMETRY LOCKED: ${geoTypes.join(", ")}`);
         } else {
@@ -1855,13 +1868,13 @@ OUTPUT: High-quality professional EYE-LEVEL interior photograph.`;
           scale_locked: false
         };
       }
-      
+
       // Get space analysis for furniture constraints (use pre-extracted variable)
       const currentSpaceAnalysis = (spaceAnalysis as SpaceAnalysisData) || null;
-      
+
       // Build furniture constraints block
       const furnitureConstraintsBlock = buildFurnitureConstraintsBlock(currentSpaceAnalysis);
-      
+
       // Log furniture constraints usage
       console.log(`[Step 1] reference_image_provided: ${designRefIds.length > 0}`);
       console.log(`[Step 1] reference_image_applied_in_step: Step 2 only (NOT Step 1)`);
@@ -1869,20 +1882,20 @@ OUTPUT: High-quality professional EYE-LEVEL interior photograph.`;
       if (currentSpaceAnalysis?.rooms) {
         console.log(`[Step 1] rooms_with_constraints: ${currentSpaceAnalysis.rooms.length}`);
       }
-      
+
       // Build Step 1 prompt with scale guidance, geometry constraints, AND furniture constraints injected
       prompt = STEP_1_BASE_TEMPLATE
         .replace("{SCALE_GUIDANCE_BLOCK}", dimensionAnalysis.scale_guidance_text)
         .replace("{FURNITURE_CONSTRAINTS_BLOCK}", furnitureConstraintsBlock);
-        
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "furniture_constraints", 
+
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "furniture_constraints",
         `Furniture constraints applied from ${currentSpaceAnalysis?.rooms?.length || 0} room(s)`, (currentStep - 1) * 25 + 9);
     } else if (currentStep === 2) {
       // Step 2: Design Style Change - may include design references for style transfer
       // Get space analysis for layout preservation (use pre-extracted variable)
       const currentSpaceAnalysis = (spaceAnalysis as SpaceAnalysisData) || null;
       const layoutPreservationBlock = buildStep2LayoutPreservationBlock(currentSpaceAnalysis);
-      
+
       // Get pre-analyzed style constraints (use pre-extracted variable)
       const currentReferenceStyleAnalysis = (referenceStyleAnalysis as {
         analyzed_at?: string;
@@ -1891,19 +1904,19 @@ OUTPUT: High-quality professional EYE-LEVEL interior photograph.`;
         style_constraints_block?: string;
         summary?: string;
       }) || null;
-      
+
       // Log design reference scope
       console.log(`[Step 2] reference_image_provided: ${designRefIds.length > 0}`);
       console.log(`[Step 2] reference_image_applied_in_step: Step 2 only`);
       console.log(`[Step 2] layout_preservation_constraints: ${currentSpaceAnalysis ? 'true' : 'false'}`);
       console.log(`[Step 2] style_analysis_available: ${currentReferenceStyleAnalysis ? 'true' : 'false'}`);
       console.log(`[Step 2] style_constraints_block_length: ${currentReferenceStyleAnalysis?.style_constraints_block?.length || 0}`);
-      
+
       if (designRefIds.length > 0) {
         console.log(`[run-pipeline-step] Step 2: Using ${designRefIds.length} design reference(s) for style transfer`);
-        await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "style_transfer", 
+        await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "style_transfer",
           `Applying style from ${designRefIds.length} reference image(s)${currentReferenceStyleAnalysis ? ' (pre-analyzed)' : ''}`, (currentStep - 1) * 25 + 7);
-        
+
         // Build the style constraints injection block
         let styleConstraintsInjection = "";
         if (currentReferenceStyleAnalysis?.style_constraints_block) {
@@ -1916,10 +1929,10 @@ STYLE SUMMARY: ${currentReferenceStyleAnalysis.summary || "Apply the style chara
 
 `;
           console.log(`[Step 2] Injecting pre-analyzed style constraints block`);
-          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "style_constraints_injected", 
+          await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "style_constraints_injected",
             `Style analysis injected: ${currentReferenceStyleAnalysis.style_data?.design_style?.primary || 'Custom style'}`, (currentStep - 1) * 25 + 7);
         }
-        
+
         prompt = `Apply a STYLE TRANSFER to the interior using the provided reference images as design inspiration.
 
 IMPORTANT: Apply ONLY style/material/color/lighting based on the reference style analysis below.
@@ -1962,10 +1975,10 @@ Transform the visual design style by borrowing from the reference images while p
     // Steps 4+ would use quality_post_step4 but run-pipeline-step only handles steps 1-2
     // ═══════════════════════════════════════════════════════════════════════════
     const aspectRatio = pipeline.aspect_ratio || "16:9";
-    
+
     // Steps 1-2 always use 2K quality (policy enforced)
     const effectiveImageSize = "2K";
-    
+
     console.log(`[QUALITY POLICY] Pipeline Step ${currentStep}:`);
     console.log(`  - output_resolution (original): ${pipeline.output_resolution}`);
     console.log(`  - Effective quality: ${effectiveImageSize} (Steps 1-3 always 2K)`);
@@ -1976,23 +1989,23 @@ Transform the visual design style by borrowing from the reference images while p
     if (currentStep === 2 && designRefIds.length > 0) {
       const maxRefs = 4; // Steps 1-2 always use 2K, so 4 refs is safe
       const refsToLoad = designRefIds.slice(0, maxRefs);
-      
+
       if (designRefIds.length > maxRefs) {
         console.warn(`[Memory] Limiting design references from ${designRefIds.length} to ${maxRefs}`);
-        await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "memory_optimization", 
+        await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "memory_optimization",
           `Using first ${maxRefs} references (memory limit)`, (currentStep - 1) * 25 + 8);
       }
-      
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "loading_refs", 
+
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "loading_refs",
         `Loading ${refsToLoad.length} reference image(s)...`, (currentStep - 1) * 25 + 8);
-      
+
       for (const refId of refsToLoad) {
         const { data: refUpload } = await supabaseAdmin
           .from("uploads")
           .select("bucket, path")
           .eq("id", refId)
           .single();
-        
+
         if (refUpload) {
           const { data: refSignedUrl } = await supabaseAdmin.storage
             .from(refUpload.bucket)
@@ -2055,13 +2068,13 @@ Transform the visual design style by borrowing from the reference images while p
     // Determine actual output count (Step 1 always produces 1 output)
     const actualOutputCount = currentStep === 1 ? 1 : requestedOutputCount;
     console.log(`[run-pipeline-step] Generating ${actualOutputCount} output(s) for step ${currentStep}`);
-    
-    await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "api_request", 
-      actualOutputCount > 1 
-        ? `Generating ${actualOutputCount} outputs...` 
-        : referenceImagesBase64.length > 0 
-          ? `Sending to AI with ${referenceImagesBase64.length} style reference(s)...` 
-          : "Sending to AI...", 
+
+    await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "api_request",
+      actualOutputCount > 1
+        ? `Generating ${actualOutputCount} outputs...`
+        : referenceImagesBase64.length > 0
+          ? `Sending to AI with ${referenceImagesBase64.length} style reference(s)...`
+          : "Sending to AI...",
       (currentStep - 1) * 25 + 10);
 
     // Build message content: text prompt + main image + optional reference images
@@ -2082,7 +2095,7 @@ Transform the visual design style by borrowing from the reference images while p
         type: "text",
         text: "DESIGN REFERENCE IMAGES (use these as style inspiration):"
       });
-      
+
       for (let i = 0; i < referenceImagesBase64.length; i++) {
         messageContent.push({
           type: "image_url",
@@ -2092,18 +2105,18 @@ Transform the visual design style by borrowing from the reference images while p
         });
       }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // MEMORY CLEANUP: Release raw base64 strings after embedding in messageContent
     // The base64 is now inside messageContent objects, so we can null the originals
     // ═══════════════════════════════════════════════════════════════════════════
     logMemory("before-memory-cleanup");
-    
+
     // Clear the raw base64 strings - they're now embedded in messageContent
     base64Image = ""; // Can't use null because it's a string type
     referenceImagesBase64.length = 0;
     referenceImagesBase64 = []; // Reset array
-    
+
     logMemory("after-memory-cleanup");
     console.log(`[Memory] Cleared raw base64 strings, messageContent contains ${messageContent.length} parts`);
 
@@ -2117,7 +2130,7 @@ Transform the visual design style by borrowing from the reference images while p
       camera_angle?: string;
       preset_id?: string;
     }> = [];
-    
+
     // NOTE: Defer fetchFullStepOutputs() until AFTER generation to keep memory lower during API calls
     // We'll fetch step3 preset IDs via a lightweight query if needed
     let usedPresetIds: string[] = [];
@@ -2138,14 +2151,14 @@ Transform the visual design style by borrowing from the reference images while p
     for (let outputIndex = 0; outputIndex < actualOutputCount; outputIndex++) {
       const isMultiOutput = actualOutputCount > 1;
       const outputLabel = isMultiOutput ? ` (${outputIndex + 1}/${actualOutputCount})` : "";
-      
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "generating", 
+
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "generating",
         `Generating output${outputLabel}...`, (currentStep - 1) * 25 + 11 + outputIndex);
 
       // For Step 3 with multiple outputs, select different camera presets
       let currentPrompt = prompt;
       let currentPresetId: string | null = selectedPresetId;
-      
+
       if (currentStep === 3 && isMultiOutput && outputIndex > 0) {
         // Select a different camera preset for each additional output
         const nextPreset = selectStep3CameraPreset(usedPresetIds);
@@ -2156,16 +2169,16 @@ Transform the visual design style by borrowing from the reference images while p
           console.log(`[Step 3] Output ${outputIndex + 1}: Using camera preset ${nextPreset.name}`);
         }
       }
-      
+
       // Build message for this specific output
       const outputMessageContent = [
         { type: "text", text: currentPrompt },
         ...messageContent.slice(1) // Keep the images
       ];
-      
+
       // For multi-output, add variation instruction
       if (isMultiOutput && currentStep !== 3) {
-        const variationInstruction = currentStep === 2 
+        const variationInstruction = currentStep === 2
           ? `\n\nVARIATION ${outputIndex + 1}: Create a unique style interpretation. Vary color tones, material textures, or lighting mood while maintaining the same design direction.`
           : `\n\nVARIATION ${outputIndex + 1}: Create a unique panorama interpretation. Vary the specific details, lighting nuances, or subtle atmosphere changes.`;
         outputMessageContent[0] = { type: "text", text: currentPrompt + variationInstruction };
@@ -2177,15 +2190,15 @@ Transform the visual design style by borrowing from the reference images while p
       if (!API_NANOBANANA) {
         throw new Error("API_NANOBANANA secret not configured");
       }
-      
+
       // For step 4 (panorama), force 2:1 aspect ratio
       const effectiveAspectRatio = currentStep === 4 ? "2:1" : aspectRatio;
-      
+
       console.log(`[QUALITY POLICY] Pipeline Step ${currentStep} Output ${outputIndex + 1} API Request:`);
       console.log(`  - Model: gemini-3-pro-image-preview`);
       console.log(`  - Effective imageSize: ${effectiveImageSize}`);
       console.log(`  - Requested aspectRatio: ${effectiveAspectRatio}`);
-      
+
       // Build request with Gemini API format - includes imageConfig for 4K support
       // Extract images from outputMessageContent and convert to Gemini format
       const imageParts = outputMessageContent
@@ -2199,7 +2212,7 @@ Transform the visual design style by borrowing from the reference images while p
           return null;
         })
         .filter((p): p is { inlineData: { mimeType: string; data: string } } => p !== null);
-      
+
       const geminiRequestBody: ImageGenerationRequest = {
         contents: [{
           role: "user",
@@ -2216,7 +2229,7 @@ Transform the visual design style by borrowing from the reference images while p
           },
         },
       };
-      
+
       // Use Langfuse-wrapped image generation for full observability
       const genResult = await wrapImageGeneration(
         {
@@ -2236,7 +2249,7 @@ Transform the visual design style by borrowing from the reference images while p
 
       if (!genResult.success || !genResult.imageData) {
         console.error(`[run-pipeline-step] Image generation failed for output ${outputIndex + 1}:`, genResult.error?.message);
-        
+
         // Parse specific error types for better user feedback
         const errorMsg = genResult.error?.message || "Unknown error";
         if (errorMsg.includes("payment_required") || errorMsg.includes("credits")) {
@@ -2244,16 +2257,16 @@ Transform the visual design style by borrowing from the reference images while p
         } else {
           lastApiError = errorMsg;
         }
-        
+
         // Continue with other outputs if one fails
         continue;
       }
-      
+
       let outputBase64 = genResult.imageData.base64;
       const outputMimeType = genResult.imageData.mimeType;
-      
+
       console.log(`[run-pipeline-step] Image generated in ${genResult.timingMs}ms, generation ID: ${genResult.generationId}`);
-      
+
       logMemory("after-api-response");
 
       // ═══════════════════════════════════════════════════════════════════════
@@ -2264,23 +2277,23 @@ Transform the visual design style by borrowing from the reference images while p
         .update({ current_step_last_heartbeat_at: new Date().toISOString() })
         .eq("id", pipeline_id);
 
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "api_complete", 
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "api_complete",
         `AI generation complete${outputLabel}`, (currentStep - 1) * 25 + 13 + outputIndex);
 
       // Upload output - ORIGINAL quality, no post-processing compression
       // Decode base64 without creating a giant intermediate JS string (atob)
       const outputBuffer = decodeBase64(outputBase64);
-      
+
       // RESOLUTION VERIFICATION: Check BEFORE clearing outputBase64
       const imageDims = getImageDimensions(outputBase64);
-      
+
       // Step 4 is panorama generation - use relaxed validation for Nano Banana
       const isPanoramaStep = currentStep === 4;
       const resolutionCheck = verifyResolution(imageDims, effectiveImageSize, {
         isPanoramaTask: isPanoramaStep,
         provider: "nano_banana" // All pipeline steps currently use Nano Banana
       });
-      
+
       console.log(`[QUALITY] Step ${currentStep} Output ${outputIndex + 1}:`);
       console.log(`  - Requested: ${effectiveImageSize} (${aspectRatio})`);
       console.log(`  - Actual dimensions: ${imageDims ? `${imageDims.width}×${imageDims.height}` : "UNKNOWN"}`);
@@ -2290,23 +2303,23 @@ Transform the visual design style by borrowing from the reference images while p
       }
       console.log(`  - File size: ${(outputBuffer.length / 1024 / 1024).toFixed(2)} MB`);
       console.log(`  - Mime type: ${outputMimeType}`);
-      
+
       // MEMORY CLEANUP: Clear outputBase64 after dimension check
       outputBase64 = "";
       logMemory("after-output-decode");
-      
+
       const fileExt = outputMimeType.includes("png") ? "png" : "jpg";
       const outputPath = `${user.id}/${pipeline.project_id}/pipeline_${pipeline_id}_step${currentStep}_v${outputIndex + 1}_${Date.now()}.${fileExt}`;
-      
+
       // Quality check - for panorama tasks with Nano Banana, only log as INFO if it's a provider limitation
       if (!resolutionCheck.passed) {
         console.warn(`[QUALITY WARNING] Output resolution lower than expected`);
-        await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "quality_warning", 
+        await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "quality_warning",
           `Resolution lower than expected: ${imageDims?.width}×${imageDims?.height}`, (currentStep - 1) * 25 + 14 + outputIndex);
       } else if (resolutionCheck.isProviderLimitation && isPanoramaStep) {
         // For Nano Banana panoramas, log as INFO (non-blocking) instead of warning
         console.log(`[INFO] Nano Banana panorama output: ${imageDims?.width}×${imageDims?.height} (provider limitation, not a failure)`);
-        await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "info", 
+        await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "info",
           `Panorama output: ${imageDims?.width}×${imageDims?.height} (provider limitation)`, (currentStep - 1) * 25 + 14 + outputIndex);
       }
 
@@ -2340,7 +2353,7 @@ Transform the visual design style by borrowing from the reference images while p
         continue;
       }
 
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "upload_complete", 
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "upload_complete",
         `Output saved${outputLabel} (${(outputBuffer.length / 1024 / 1024).toFixed(2)} MB)`, (currentStep - 1) * 25 + 15 + outputIndex);
 
       // ═══════════════════════════════════════════════════════════════════════
@@ -2375,7 +2388,7 @@ Transform the visual design style by borrowing from the reference images while p
         authHeader!,
       );
 
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "qa_complete", 
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "qa_complete",
         `QA${outputLabel}: ${qaResult.decision}`, (currentStep - 1) * 25 + 19 + outputIndex);
 
       // deno-lint-ignore no-explicit-any
@@ -2398,14 +2411,14 @@ Transform the visual design style by borrowing from the reference images while p
         prompt_used: currentPrompt,
         variation_index: outputIndex,
       };
-      
+
       if (currentStep === 3 && currentPresetId) {
         outputEntry.camera_angle = STEP_3_CAMERA_PRESETS.find(p => p.id === currentPresetId)?.name || currentPresetId;
         outputEntry.preset_id = currentPresetId;
       }
-      
+
       generatedOutputs.push(outputEntry);
-      
+
       // ═══════════════════════════════════════════════════════════════════════
       // STORE ATTEMPT IN floorplan_pipeline_step_attempts FOR FULL PROMPT TRACEABILITY
       // The prompt_used in step_outputs is truncated, but this table stores the FULL prompt
@@ -2427,13 +2440,13 @@ Transform the visual design style by borrowing from the reference images while p
             qa_reason_full: typeof qaResult.reason === "string" ? qaResult.reason : JSON.stringify(qaResult.reason),
             qa_result_json: qaResult,
           });
-        
+
         if (attemptError) {
           console.error(`[run-pipeline-step] Failed to store attempt record:`, attemptError.message);
         } else {
           console.log(`[run-pipeline-step] Stored attempt ${attemptIndex} for step ${currentStep} with full prompt (${currentPrompt.length} chars)`);
         }
-        
+
         // ═══════════════════════════════════════════════════════════════════════
         // PERSIST QA RESULT TO qa_judge_results FOR UI DISPLAY (MANDATORY)
         // ═══════════════════════════════════════════════════════════════════════
@@ -2441,7 +2454,7 @@ Transform the visual design style by borrowing from the reference images while p
           const qaPass = qaResult.decision === "approved";
           const qaScore = qaResult.score ?? (qaPass ? 90 : 30); // Default scores if not provided
           const reasons: string[] = [];
-          
+
           // Extract reasons from various formats
           if (qaResult.reason && typeof qaResult.reason === "string") {
             reasons.push(qaResult.reason);
@@ -2455,7 +2468,7 @@ Transform the visual design style by borrowing from the reference images while p
               }
             }
           }
-          
+
           await persistQAJudgeResult({
             supabase: supabaseAdmin,
             pipeline_id,
@@ -2493,24 +2506,24 @@ Transform the visual design style by borrowing from the reference images while p
       throw new Error(errorMsg);
     }
 
-    await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "generation_complete", 
+    await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "generation_complete",
       `Generated ${generatedOutputs.length} output(s)`, (currentStep - 1) * 25 + 22);
-    
+
     // Auto-rerender for Step 4 (360° Panorama) QA rejection
     // Check if the primary output was rejected and we haven't hit max attempts
     const primaryOutput = generatedOutputs[0];
     const isPanoramaStep = currentStep === 4;
     const wasRejected = primaryOutput?.qa_decision === "rejected";
     const canAutoRerender = isPanoramaStep && wasRejected && currentAutoAttempt < MAX_AUTO_RERENDER_ATTEMPTS;
-    
+
     if (canAutoRerender) {
       const nextAttempt = currentAutoAttempt + 1;
       console.log(`[Step 4] QA rejected - auto-rerender attempt ${nextAttempt}/${MAX_AUTO_RERENDER_ATTEMPTS}`);
-      
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "auto_rerender", 
-        `QA rejected: "${primaryOutput.qa_reason?.slice(0, 50)}..." - auto-retry ${nextAttempt}/${MAX_AUTO_RERENDER_ATTEMPTS}`, 
+
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "auto_rerender",
+        `QA rejected: "${primaryOutput.qa_reason?.slice(0, 50)}..." - auto-retry ${nextAttempt}/${MAX_AUTO_RERENDER_ATTEMPTS}`,
         (currentStep - 1) * 25 + 23);
-      
+
       // Store the failed attempt in history
       const stepOutputs = await fetchFullStepOutputs();
       const currentStepHistory = (stepOutputs[`step${currentStep}_history`] as any[]) || [];
@@ -2522,19 +2535,19 @@ Transform the visual design style by borrowing from the reference images while p
         timestamp: new Date().toISOString()
       });
       stepOutputs[`step${currentStep}_history`] = currentStepHistory;
-      
+
       // Update pipeline to keep running state for retry
       await supabaseAdmin
         .from("floorplan_pipelines")
-        .update({ 
+        .update({
           step_outputs: stepOutputs,
           updated_at: new Date().toISOString()
         })
         .eq("id", pipeline_id);
-      
+
       // Return with auto-rerender flag so frontend can continue the loop
-      return new Response(JSON.stringify({ 
-        success: true, 
+      return new Response(JSON.stringify({
+        success: true,
         autoRerender: true,
         attempt: nextAttempt,
         maxAttempts: MAX_AUTO_RERENDER_ATTEMPTS,
@@ -2546,15 +2559,15 @@ Transform the visual design style by borrowing from the reference images while p
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-    
+
     // Check if we hit max retries for panorama
     if (isPanoramaStep && wasRejected && currentAutoAttempt >= MAX_AUTO_RERENDER_ATTEMPTS) {
       console.log(`[Step 4] Max auto-rerender attempts (${MAX_AUTO_RERENDER_ATTEMPTS}) reached - manual review required`);
-      
-      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "max_retries", 
-        `Max retries (${MAX_AUTO_RERENDER_ATTEMPTS}) reached - manual review required`, 
+
+      await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "max_retries",
+        `Max retries (${MAX_AUTO_RERENDER_ATTEMPTS}) reached - manual review required`,
         (currentStep - 1) * 25 + 24);
-      
+
       // Create notification for manual review
       await supabaseAdmin.from("notifications").insert({
         owner_id: user.id,
@@ -2570,19 +2583,19 @@ Transform the visual design style by borrowing from the reference images while p
     // Update pipeline with step outputs
     // For multi-output, store as an array; for single output, maintain backward compatibility
     const isSingleOutput = generatedOutputs.length === 1;
-    
+
     // PARTIAL SUCCESS LOGIC: Count approved vs rejected outputs
     const approvedCount = generatedOutputs.filter(o => o.qa_decision === "approved").length;
     const rejectedCount = generatedOutputs.filter(o => o.qa_decision === "rejected").length;
     const totalCount = generatedOutputs.length;
-    
+
     // Determine overall step QA decision:
     // - "approved" if ALL outputs are approved
     // - "partial_success" if at least ONE output is approved but some are rejected
     // - "rejected" ONLY if ALL outputs are rejected
     let overallQaDecision: string;
     let overallQaReason: string;
-    
+
     if (rejectedCount === 0) {
       overallQaDecision = "approved";
       overallQaReason = `All ${totalCount} output(s) passed QA`;
@@ -2593,25 +2606,25 @@ Transform the visual design style by borrowing from the reference images while p
       overallQaDecision = "rejected";
       overallQaReason = `All ${totalCount} output(s) rejected by QA`;
     }
-    
+
     console.log(`[run-pipeline-step] Step ${currentStep} QA summary: ${overallQaDecision} - ${overallQaReason}`);
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // STEP 1-3 AUTO-RETRY LOGIC: If QA fails for early steps, auto-retry up to 5 times
     // ═══════════════════════════════════════════════════════════════════════════
     const isEarlyStep = currentStep >= 1 && currentStep <= 3;
     const wasRejectedByQA = overallQaDecision === "rejected";
-    
+
     if (isEarlyStep && wasRejectedByQA) {
       console.log(`[Step ${currentStep}] QA rejected - checking auto-retry eligibility`);
-      
+
       // Fetch current step_retry_state
       const { data: currentPipeline } = await supabaseAdmin
         .from("floorplan_pipelines")
         .select("step_retry_state, total_retry_count, auto_retry_enabled")
         .eq("id", pipeline_id)
         .single();
-      
+
       const stepKey = `step_${currentStep}`;
       const existingRetryState = (currentPipeline?.step_retry_state || {}) as Record<string, any>;
       let stepState = existingRetryState[stepKey] || {
@@ -2621,27 +2634,27 @@ Transform the visual design style by borrowing from the reference images while p
         last_qa_result: null,
         status: "pending",
       };
-      
+
       // Increment attempt count
       stepState.attempt_count = (stepState.attempt_count || 0) + 1;
       // Collect all output upload IDs from this failed attempt
       const failedOutputIds = generatedOutputs
         .filter((o: any) => o.output_upload_id)
         .map((o: any) => o.output_upload_id);
-      
+
       // Get the first output with all QA details (cast to any for dynamic fields)
       // deno-lint-ignore no-explicit-any
       const firstOutput = generatedOutputs[0] as any;
-      
+
       // Build specific reason from check fields if available (more useful than generic message)
       const buildSpecificReason = (output: any): string => {
         if (!output) return overallQaReason;
-        
+
         // If we have a specific reason from GPT, use it
         if (output.qa_reason && !output.qa_reason.includes("rejected by QA")) {
           return output.qa_reason;
         }
-        
+
         // Build from individual check fields
         const issues: string[] = [];
         if (output.geometry_check === "failed") issues.push("Wall geometry not preserved");
@@ -2652,16 +2665,16 @@ Transform the visual design style by borrowing from the reference images while p
         if (output.structural_check === "failed") issues.push("Structural elements changed");
         if (output.bed_size_issues?.length) issues.push(output.bed_size_issues[0]);
         if (output.furniture_issues?.length) issues.push(output.furniture_issues[0]);
-        
+
         if (issues.length > 0) return issues.join("; ");
-        
+
         // Fall back to whatever reason we have
         return output.qa_reason || overallQaReason;
       };
-      
+
       const specificReason = buildSpecificReason(firstOutput);
       console.log(`[Step ${currentStep}] QA rejection reason: "${specificReason}"`);
-      
+
       stepState.last_qa_result = {
         decision: overallQaDecision,
         // Use specific reason, not generic summary
@@ -2683,7 +2696,7 @@ Transform the visual design style by borrowing from the reference images while p
         output_upload_ids: failedOutputIds,
       };
       stepState.updated_at = new Date().toISOString();
-      
+
       // Build attempt history for this step - include actual QA reason
       const attemptNumber = stepState.attempt_count;
       const attemptRecord = {
@@ -2708,30 +2721,30 @@ Transform the visual design style by borrowing from the reference images while p
         },
         timestamp: new Date().toISOString(),
       };
-      
+
       // Initialize or append to attempts array
       if (!stepState.attempts) {
         stepState.attempts = [];
       }
       stepState.attempts.push(attemptRecord);
-      
+
       const attemptCount = stepState.attempt_count;
       const maxAttempts = stepState.max_attempts || 5;
       const autoRetryEnabled = stepState.auto_retry_enabled !== false && currentPipeline?.auto_retry_enabled !== false;
       const globalRetryCount = (currentPipeline?.total_retry_count || 0);
       const maxGlobalRetries = 20; // Hard limit per run
-      
+
       console.log(`[Step ${currentStep}] Attempt ${attemptCount}/${maxAttempts}, global retries: ${globalRetryCount}/${maxGlobalRetries}`);
-      
+
       // Check if we should auto-retry
-      const canAutoRetry = autoRetryEnabled && 
-                           attemptCount < maxAttempts && 
-                           globalRetryCount < maxGlobalRetries;
-      
+      const canAutoRetry = autoRetryEnabled &&
+        attemptCount < maxAttempts &&
+        globalRetryCount < maxGlobalRetries;
+
       if (canAutoRetry) {
         // Mark as qa_fail and trigger retry
         stepState.status = "qa_fail";
-        
+
         // Build retry delta - adjust constraints based on QA feedback
         const retryDelta = {
           changes_made: [] as string[],
@@ -2739,7 +2752,7 @@ Transform the visual design style by borrowing from the reference images while p
           new_seed: Math.floor(Math.random() * 2147483647),
           temperature: Math.max(0.1, 0.7 - (attemptCount * 0.1)),
         };
-        
+
         // Add specific constraints based on rejection reasons
         const qaReason = generatedOutputs[0]?.qa_reason?.toLowerCase() || "";
         if (qaReason.includes("geometry") || qaReason.includes("wall") || qaReason.includes("angle")) {
@@ -2758,9 +2771,9 @@ Transform the visual design style by borrowing from the reference images while p
           retryDelta.prompt_adjustments.push("CRITICAL: Preserve exact furniture types and counts from input. Do NOT add or change furniture.");
           retryDelta.changes_made.push("Added furniture preservation constraint");
         }
-        
+
         stepState.last_retry_delta = retryDelta;
-        
+
         // Update pipeline with retry state
         await supabaseAdmin
           .from("floorplan_pipelines")
@@ -2771,20 +2784,20 @@ Transform the visual design style by borrowing from the reference images while p
             updated_at: new Date().toISOString(),
           })
           .eq("id", pipeline_id);
-        
+
         await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "auto_retry_started",
           `AI-QA rejected Step ${currentStep} - auto-retry ${attemptCount + 1}/${maxAttempts}`, 10);
-        
+
         // Self-invoke with retry context (non-blocking)
         console.log(`[Step ${currentStep}] Triggering auto-retry ${attemptCount + 1}/${maxAttempts}`);
-        
+
         const retryBody = {
           pipeline_id,
           is_retry: true,
           retry_attempt: attemptCount + 1,
           retry_delta: retryDelta,
         };
-        
+
         // Use fire-and-forget pattern to avoid blocking
         // CRITICAL: Use service role key for internal retries to avoid token expiration issues
         fetch(`${SUPABASE_URL}/functions/v1/run-pipeline-step`, {
@@ -2797,7 +2810,7 @@ Transform the visual design style by borrowing from the reference images while p
           },
           body: JSON.stringify(retryBody),
         }).catch(err => console.error(`[Step ${currentStep}] Retry invocation error:`, err));
-        
+
         return new Response(JSON.stringify({
           success: true,
           auto_retry_triggered: true,
@@ -2810,7 +2823,7 @@ Transform the visual design style by borrowing from the reference images while p
       } else if (attemptCount >= maxAttempts) {
         // Max retries exhausted - block for human approval
         stepState.status = "blocked_for_human";
-        
+
         await supabaseAdmin
           .from("floorplan_pipelines")
           .update({
@@ -2819,10 +2832,10 @@ Transform the visual design style by borrowing from the reference images while p
             updated_at: new Date().toISOString(),
           })
           .eq("id", pipeline_id);
-        
+
         await emitEvent(supabaseAdmin, pipeline_id, user.id, currentStep, "qa_fail_blocked",
           `Step ${currentStep} blocked after ${maxAttempts} failed attempts - manual approval required`, 10);
-        
+
         // Create notification for manual review
         await supabaseAdmin.from("notifications").insert({
           owner_id: user.id,
@@ -2833,7 +2846,7 @@ Transform the visual design style by borrowing from the reference images while p
           target_route: `/projects/${pipeline.project_id}`,
           target_params: { tab: "floor-plan-jobs", pipelineId: pipeline_id },
         });
-        
+
         return new Response(JSON.stringify({
           success: true,
           blocked_for_human: true,
@@ -2846,10 +2859,10 @@ Transform the visual design style by borrowing from the reference images while p
         });
       }
     }
-    
+
     // Fetch full step_outputs NOW (after generation is complete, to reduce peak memory during API calls)
     const stepOutputs = await fetchFullStepOutputs();
-    
+
     if (isSingleOutput) {
       // Single output - backward compatible format
       const output = generatedOutputs[0];
@@ -2924,8 +2937,8 @@ Transform the visual design style by borrowing from the reference images while p
     // PARTIAL SUCCESS HANDLING: Step goes to waiting_approval if at least ONE output is valid
     // The step is NOT marked as failed/rejected if partial success
     // Only mark as step{N}_rejected if ALL outputs failed
-    const stepStatus = overallQaDecision === "rejected" 
-      ? `step${currentStep}_rejected` 
+    const stepStatus = overallQaDecision === "rejected"
+      ? `step${currentStep}_rejected`
       : `step${currentStep}_waiting_approval`;
 
     // Determine whole_apartment_phase for Whole Apartment mode pipelines
@@ -2961,10 +2974,10 @@ Transform the visual design style by borrowing from the reference images while p
         .select("step_retry_state")
         .eq("id", pipeline_id)
         .single();
-      
+
       const existingRetryState = (currentPipelineState?.step_retry_state || {}) as Record<string, any>;
       const stepKey = `step_${currentStep}`;
-      
+
       if (existingRetryState[stepKey]) {
         // Update the step state to mark as passed, preserve attempt history
         existingRetryState[stepKey] = {
@@ -2983,17 +2996,17 @@ Transform the visual design style by borrowing from the reference images while p
       }
     }
 
-    const updatePayload: Record<string, any> = { 
+    const updatePayload: Record<string, any> = {
       status: stepStatus,
       step_outputs: stepOutputs,
       updated_at: new Date().toISOString()
     };
-    
+
     if (wholeApartmentPhaseUpdate) {
       updatePayload.whole_apartment_phase = wholeApartmentPhaseUpdate;
       console.log(`[run-pipeline-step] Setting whole_apartment_phase to: ${wholeApartmentPhaseUpdate}`);
     }
-    
+
     // Include updated step_retry_state if QA passed
     if (updatedStepRetryState) {
       updatePayload.step_retry_state = updatedStepRetryState;
@@ -3045,8 +3058,8 @@ Transform the visual design style by borrowing from the reference images while p
 
     // Import flushLangfuse is at top of file (need to add import first)
     // CRITICAL: Return success - Langfuse flush should have been added via import
-    return new Response(JSON.stringify({ 
-      success: true, 
+    return new Response(JSON.stringify({
+      success: true,
       outputCount: generatedOutputs.length,
       outputs: generatedOutputs.map(o => ({ uploadId: o.output_upload_id, qa: o.qa_decision }))
     }), {
@@ -3084,7 +3097,7 @@ Transform the visual design style by borrowing from the reference images while p
     } catch (resetError) {
       console.error("[run-pipeline-step] Failed to reset pipeline status:", resetError);
     }
-    
+
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -3101,18 +3114,18 @@ function isStructuralIssue(reason: string): boolean {
     "position", "positions", "size", "sizes", "layout", "structure", "structural",
     "moved", "missing", "added", "removed", "changed", "distorted", "inconsistent"
   ];
-  
+
   // Check if the rejection reason contains structural keywords
   return structuralKeywords.some(keyword => lowerReason.includes(keyword));
 }
 
 async function emitEvent(
-  supabase: any, 
-  pipelineId: string, 
-  ownerId: string, 
+  supabase: any,
+  pipelineId: string,
+  ownerId: string,
   stepNumber: number,
-  type: string, 
-  message: string, 
+  type: string,
+  message: string,
   progressInt: number
 ) {
   await supabase.from("floorplan_pipeline_events").insert({
@@ -3286,8 +3299,8 @@ async function runQAValidation(
     const reasons = qaResult.reasons || [];
     const reason = reasons.length > 0
       ? reasons.map((r: { category?: string; short_reason?: string }) =>
-          r.category ? `[${r.category}] ${r.short_reason}` : r.short_reason
-        ).join("; ")
+        r.category ? `[${r.category}] ${r.short_reason}` : r.short_reason
+      ).join("; ")
       : (qaResult.summary || qaResult.reason || (decision === "approved" ? "All checks passed" : "QA check failed"));
 
     console.log(`[QA] Final decision: ${decision}, score: ${score}, reason: ${reason.substring(0, 200)}`);
@@ -3462,7 +3475,7 @@ Rejected output (structural issue):
       // ═══════════════════════════════════════════════════════════════
       console.log(`[Step 3 QA] ▶▶▶ EXECUTING Step 3 QA validation`);
       console.log(`[Step 3 QA] Comparing Step 2 output (input) vs Step 3 output`);
-      
+
       qaPrompt = `You are performing MANDATORY QA validation on Step 3 (Camera-Angle Render).
 
 ═══════════════════════════════════════════════════════════════
@@ -3566,7 +3579,7 @@ Respond with ONLY valid JSON: {"decision": "approved" or "rejected", "reason": "
       // Step 2: Design Style Change validation with FURNITURE PRESERVATION + TEXT OVERLAY
       // STEP 2 QA IS ACTIVE - Log entry to confirm execution
       console.log(`[Step 2 QA] EXECUTING Step 2 validation - comparing input vs styled output`);
-      
+
       qaPrompt = `You are performing QA validation on a STEP 2 (Design Style Change) output.
 
 ═══════════════════════════════════════════════════════════════
@@ -3728,33 +3741,33 @@ Respond with ONLY valid JSON: {"decision": "approved" or "rejected", "reason": "
 
     const result = await response.json();
     const content = result.choices?.[0]?.message?.content || "";
-    
+
     const qaEndTime = Date.now();
     console.log(`[QA EXECUTION] Step ${stepNumber} QA completed in ${qaEndTime - qaStartTime}ms`);
     console.log(`[QA EXECUTION] Raw response length: ${content.length} chars`);
-    
+
     // Parse JSON from response
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       console.log(`[QA EXECUTION] Step ${stepNumber} RESULT:`, JSON.stringify(parsed));
       console.log(`[QA EXECUTION] ═══════════════════════════════════════════════════════`);
-      
+
       // Step 1 uses new format with "status" and "reasons" array
       if (stepNumber === 1) {
         // Normalize Step 1 response: status → decision, reasons → reason
         const decision = parsed.status === "approved" ? "approved" : "rejected";
         const reasons = parsed.reasons || [];
-        const reason = reasons.length > 0 
+        const reason = reasons.length > 0
           ? reasons.map((r: { category: string; short_reason: string }) => `[${r.category}] ${r.short_reason}`).join("; ")
           : (decision === "approved" ? "All checks passed" : "QA check failed");
-        
+
         // Extract individual check statuses from categories
         const hasFlooringIssue = reasons.some((r: { category: string }) => r.category === "flooring_mismatch");
         const hasScaleIssue = reasons.some((r: { category: string }) => r.category === "furniture_scale");
         const hasExtraFurniture = reasons.some((r: { category: string }) => r.category === "extra_furniture");
         const hasStructuralChange = reasons.some((r: { category: string }) => r.category === "structural_change");
-        
+
         return {
           decision,
           reason,
@@ -3774,7 +3787,7 @@ Respond with ONLY valid JSON: {"decision": "approved" or "rejected", "reason": "
           raw_qa_result: parsed,
         };
       }
-      
+
       // Other steps use existing "decision" format
       // Validate that we got a real decision, not empty/undefined
       if (!parsed.decision || (parsed.decision !== "approved" && parsed.decision !== "rejected" && parsed.decision !== "no_change")) {
@@ -3785,10 +3798,10 @@ Respond with ONLY valid JSON: {"decision": "approved" or "rejected", "reason": "
         }
         return { decision: "rejected", reason: "QA returned invalid decision format", qa_executed: false };
       }
-      
+
       return { ...parsed, qa_executed: true };
     }
-    
+
     // Parsing failed: never silently approve.
     console.warn(`[QA EXECUTION] Step ${stepNumber} could not parse response`);
     if (stepNumber === 3) {

@@ -20,10 +20,10 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
  * Step 6: Panoramas
  * Step 7: Merge/Final 360
  */
-const PHASE_MAP: Record<number, { 
-  pending: string; 
+const PHASE_MAP: Record<number, {
+  pending: string;
   running?: string;
-  status_pending: string; 
+  status_pending: string;
 }> = {
   0: { pending: "space_analysis_pending", running: "space_analysis_running", status_pending: "step0_pending" },
   1: { pending: "top_down_3d_pending", running: "top_down_3d_running", status_pending: "step1_pending" },
@@ -106,11 +106,11 @@ serve(async (req) => {
     for (let s = current_step_number; s <= 7; s++) {
       const stepKey = `step${s}`;
       const stepData = stepOutputs[stepKey];
-      
+
       if (stepData?.output_upload_id && stepData.output_upload_id !== pipeline.floor_plan_upload_id) {
         uploadIdsToDelete.add(stepData.output_upload_id);
       }
-      
+
       if (stepData?.outputs && Array.isArray(stepData.outputs)) {
         for (const output of stepData.outputs) {
           if (output?.output_upload_id && output.output_upload_id !== pipeline.floor_plan_upload_id) {
@@ -124,7 +124,7 @@ serve(async (req) => {
     for (let s = current_step_number; s <= 7; s++) {
       const stateKey = `step_${s}`;
       const stateData = stepRetryState[stateKey];
-      
+
       if (stateData?.attempts && Array.isArray(stateData.attempts)) {
         for (const attempt of stateData.attempts) {
           if (attempt?.output_upload_ids && Array.isArray(attempt.output_upload_ids)) {
@@ -201,7 +201,8 @@ serve(async (req) => {
         .eq("pipeline_id", pipeline_id);
     }
 
-    // 8. Delete actual files from storage
+    // DISABLED: Pipeline-generated uploads are now PRESERVED for Creations
+    /*
     let deletedCount = 0;
     for (const uploadId of Array.from(uploadIdsToDelete)) {
       try {
@@ -220,8 +221,9 @@ serve(async (req) => {
         console.warn(`[ROLLBACK_STEP] Error deleting upload ${uploadId}:`, err);
       }
     }
-
-    console.log(`[ROLLBACK_STEP] Deleted ${deletedCount} uploads from storage`);
+    */
+    const deletedCount = 0;
+    console.log(`[ROLLBACK_STEP] Preserving ${uploadIdsToDelete.size} uploads for Creations`);
 
     // 9. Clear step_outputs and step_retry_state for steps >= current_step_number
     const cleanedStepOutputs = { ...stepOutputs };

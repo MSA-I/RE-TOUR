@@ -9,6 +9,16 @@
 
 ## ⚠️ Blueprint Philosophy
 
+## 🧠 Mandatory Skills (User Enforced)
+The following skills **MUST** be used for all relevant tasks.
+**Path:** `C:\Users\User\.agent\skills\skills`
+
+- **Troubleshooting**: `troubleshooting-applications`
+- **Planning**: `planning`
+- **Brainstorming**: `brainstorming`
+- **Brand Identity**: `brand-identity`
+- **Skill Creation**: `creating-skills`
+
 This document is a **living blueprint**, not a frozen constitution.
 
 - **Proposed Patterns**: Retry limits (3 attempts), backoff (1s/2s/4s), DLQ, framework inspirations (DeepEval, XState) are **approved defaults**, not hard laws.

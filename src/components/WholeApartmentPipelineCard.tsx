@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PipelineProgressBar } from "@/components/whole-apartment/PipelineProgressBar";
 import { Separator } from "@/components/ui/separator";
 import { FloorplanPipeline } from "@/hooks/useFloorplanPipelines";
@@ -11,6 +12,9 @@ import {
   useWholeApartmentPipeline,
   WHOLE_APARTMENT_STEP_NAMES,
   PHASE_STEP_MAP,
+  STEP_BADGES,
+  STEP_0_SUBSTEPS,
+  LOCKED_PIPELINE_DISPLAY,
 } from "@/hooks/useWholeApartmentPipeline";
 import { SpaceCard } from "@/components/whole-apartment/SpaceCard";
 import {
@@ -25,7 +29,8 @@ import { PipelineDesignReferenceUploader } from "@/components/whole-apartment/Pi
 import { ReferenceStyleDebugPanel } from "@/components/whole-apartment/ReferenceStyleDebugPanel";
 import { StageApprovalGate } from "@/components/whole-apartment/StageApprovalGate";
 import { StepRetryStatusIndicator, StepRetryState } from "@/components/whole-apartment/StepRetryStatusIndicator";
-import { CameraPlanningEditor } from "@/components/whole-apartment/CameraPlanningEditor";
+// CameraPlanningEditor removed - replaced with CameraIntentSelector (Templates A-H)
+import { CameraIntentSelector } from "@/components/whole-apartment/CameraIntentSelector";
 import { StopResetStepButton } from "@/components/whole-apartment/StopResetStepButton";
 import { StepControlsFooter } from "@/components/whole-apartment/StepControlsFooter";
 import { Step2OutputsPanel } from "@/components/whole-apartment/Step2OutputsPanel";
@@ -64,6 +69,7 @@ import {
   Clock,
   RefreshCw,
   Camera,
+  Info,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -131,27 +137,30 @@ const PHASE_COLORS: Record<string, string> = {
 function GlobalStepIndicator({ currentStep }: { currentStep: number }) {
   return (
     <div className="flex items-center gap-1 w-full overflow-x-auto py-2">
-      {WHOLE_APARTMENT_STEP_NAMES.map((name, idx) => {
-        const stepNum = idx; // 0-indexed to match PHASE_STEP_MAP
-        const isActive = stepNum === currentStep;
-        const isComplete = stepNum < currentStep;
+      {LOCKED_PIPELINE_DISPLAY.map((step, idx) => {
+        const isActive = step.internalStep === currentStep;
+        const isComplete = step.internalStep < currentStep;
+        const isFuture = step.futurePhase;
 
         return (
-          <div key={stepNum} className="flex items-center flex-shrink-0">
+          <div key={step.stepNum} className="flex items-center flex-shrink-0">
             <div
               className={`
-                flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium
-                ${isComplete ? "bg-primary text-primary-foreground" : ""}
-                ${isActive ? "bg-primary/20 text-primary ring-2 ring-primary" : ""}
-                ${!isComplete && !isActive ? "bg-muted text-muted-foreground" : ""}
+                flex items-center justify-center min-w-[32px] px-1.5 h-6 rounded-full text-xs font-medium
+                ${isComplete && !isFuture ? "bg-primary text-primary-foreground" : ""}
+                ${isActive && !isFuture ? "bg-primary/20 text-primary ring-2 ring-primary" : ""}
+                ${!isComplete && !isActive && !isFuture ? "bg-muted text-muted-foreground" : ""}
+                ${isFuture ? "bg-muted/50 text-muted-foreground/40 line-through" : ""}
               `}
+              title={`${step.label}${isFuture ? " (Future)" : ""}`}
             >
-              {isComplete ? <Check className="w-3 h-3" /> : stepNum}
+              {isComplete && !isFuture ? <Check className="w-3 h-3" /> : step.stepNum}
             </div>
-            {idx < WHOLE_APARTMENT_STEP_NAMES.length - 1 && (
+            {idx < LOCKED_PIPELINE_DISPLAY.length - 1 && (
               <div
-                className={`w-4 sm:w-8 h-0.5 mx-1 ${isComplete ? "bg-primary" : "bg-muted"
-                  }`}
+                className={`w-4 sm:w-8 h-0.5 mx-1 ${
+                  isComplete && !isFuture ? "bg-primary" : "bg-muted"
+                }`}
               />
             )}
           </div>
@@ -562,15 +571,27 @@ function PipelineSettingsDrawer({
   // Can edit quality_post_step4 until renders start
   // Updated step numbering: Step 3 = Detect Spaces, Step 4 = Camera Planning
   const PHASE_STEP_MAP_LOCAL: Record<string, number> = {
-    upload: 0, space_analysis_pending: 0, space_analysis_running: 0, space_analysis_complete: 0,
-    top_down_3d_pending: 1, top_down_3d_running: 1, top_down_3d_review: 1,
+    upload: 0,
+    // Step 0: Split into 0.1 and 0.2
+    design_reference_pending: 0, design_reference_running: 0, design_reference_complete: 0, design_reference_failed: 0,
+    space_scan_pending: 0, space_scan_running: 0, space_scan_complete: 0, space_scan_review: 0, space_scan_failed: 0,
+    // Legacy Step 0 (for migration compatibility)
+    space_analysis_pending: 0, space_analysis_running: 0, space_analysis_complete: 0, space_analysis_review: 0, space_analysis_failed: 0,
+    top_down_3d_pending: 1, top_down_3d_running: 1, top_down_3d_review: 1, top_down_3d_approved: 1,
     style_pending: 2, style_running: 2, style_review: 2, style_approved: 2,
-    detect_spaces_pending: 3, detecting_spaces: 3, spaces_detected: 3, // Step 3
-    camera_plan_pending: 4, camera_plan_confirmed: 4, // Step 4
-    renders_in_progress: 5, renders_review: 5,
-    panoramas_in_progress: 6, panoramas_review: 6,
-    merging_in_progress: 7, merging_review: 7,
-    completed: 8,
+    // Step 3 (internal legacy): Detect Spaces
+    detect_spaces_pending: 3, detecting_spaces: 3, spaces_detected: 3, spaces_detected_waiting_approval: 3,
+    // Step 4 (internal, spec Step 3): Camera Intent
+    camera_intent_pending: 4, camera_intent_confirmed: 4,
+    // Legacy camera_plan phases (for migration compatibility)
+    camera_plan_pending: 4, camera_plan_in_progress: 4, camera_plan_confirmed: 4,
+    // Step 5: Renders
+    renders_pending: 5, renders_in_progress: 5, renders_review: 5, renders_approved: 5,
+    // Step 6: Panoramas (Capability Slots - Future/Disabled)
+    panoramas_pending: 6, panoramas_in_progress: 6, panoramas_review: 6, panoramas_approved: 6,
+    // Step 7: Merge
+    merging_pending: 7, merging_in_progress: 7, merging_review: 7,
+    completed: 8, failed: -1,
   };
   const currentStep = PHASE_STEP_MAP_LOCAL[phase] ?? 0;
   const canEditQualityPostStep4 = currentStep < 5; // Now before Step 5 (Renders)
@@ -799,6 +820,24 @@ function GlobalStepsSection({
   const spaceAnalysisPending = phase === "upload" || phase === "space_analysis_pending";
   const spaceAnalysisComplete = phase === "space_analysis_complete" || PHASE_STEP_MAP[phase] >= 1;
 
+  // Step 0: Split into 0.1 (Design Reference) and 0.2 (Space Scan)
+  const designReferencePending = phase === "design_reference_pending";
+  const designReferenceRunning = phase === "design_reference_running";
+  const designReferenceComplete = phase === "design_reference_complete";
+  const designReferenceFailed = phase === "design_reference_failed";
+
+  const spaceScanPending = phase === "space_scan_pending" || phase === "design_reference_complete";
+  const spaceScanRunning = phase === "space_scan_running";
+  const spaceScanComplete = phase === "space_scan_complete";
+  const spaceScanFailed = phase === "space_scan_failed";
+
+  // Check if design references exist
+  const hasDesignReferences = pipeline.design_reference_ids && Array.isArray(pipeline.design_reference_ids) && pipeline.design_reference_ids.length > 0;
+
+  // Completion flags from database
+  const designReferenceScanComplete = pipeline.design_reference_scan_complete === true;
+  const spaceScanCompleteFlag = pipeline.space_scan_complete === true;
+
   // Step outputs - support both upload_id and output_upload_id for backwards compatibility
   type StepOutput = {
     upload_id?: string;
@@ -946,6 +985,14 @@ function GlobalStepsSection({
     const interval = setInterval(checkStale, 15000); // Check every 15 seconds
     return () => clearInterval(interval);
   }, [step3Running, pipeline.id, pipelineExt.step3_last_backend_event_at]);
+
+  // Step 4 (internal, spec Step 3): Camera Intent
+  const cameraIntentPending = phase === "camera_intent_pending";
+  const cameraIntentConfirmed = phase === "camera_intent_confirmed";
+
+  // Legacy camera plan phases (for migration compatibility)
+  const cameraPlanPending = phase === "camera_plan_pending" || phase === "camera_intent_pending";
+  const cameraPlanConfirmed = phase === "camera_plan_confirmed" || phase === "camera_intent_confirmed";
 
   // Create StageReviewAsset objects for steps that have outputs
   // Support both field naming conventions: qa_status/qa_decision, prompt_text/prompt_used
@@ -1151,23 +1198,27 @@ function GlobalStepsSection({
   return (
     <>
       <div className="space-y-3">
-        {/* Step 0: Space Analysis */}
-        {(spaceAnalysisPending || spaceAnalysisRunning || spaceAnalysisComplete) && (
+        {/* Step 0: Input Analysis (Split into 0.1 and 0.2) */}
+
+        {/* Step 0.1: Design Reference Scan (OPTIONAL - only if design refs exist) */}
+        {hasDesignReferences && (designReferencePending || designReferenceRunning || designReferenceComplete || designReferenceFailed) && (
           <div className="space-y-2">
-            <div className={`flex items-center justify-between p-3 rounded-lg border ${spaceAnalysisComplete ? "border-primary/30 bg-primary/5" : "border-border/50 bg-card/50"}`}>
+            <div className={cn(
+              "flex items-center justify-between p-3 rounded-lg border",
+              designReferenceComplete ? "border-primary/30 bg-primary/5" : "border-border/50 bg-card/50"
+            )}>
               <div className="flex items-center gap-3">
                 <Eye className="w-5 h-5 text-primary" />
                 <div>
-                  <p className="text-sm font-medium">Space Analysis</p>
-                  <p className="text-xs text-muted-foreground">AI pre-analysis • Step 0</p>
+                  <p className="text-sm font-medium">Design Reference Scan</p>
+                  <p className="text-xs text-muted-foreground">Step 0.1: Analyze style from references</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {/* Stop & Reset button for running analysis */}
-                {spaceAnalysisRunning && onRestartStep && (
+                {designReferenceRunning && onRestartStep && (
                   <StopResetStepButton
                     stepNumber={0}
-                    stepName="Space Analysis"
+                    stepName="Design Reference Scan"
                     isRunning={true}
                     isPending={false}
                     onReset={() => onRestartStep(0)}
@@ -1175,22 +1226,104 @@ function GlobalStepsSection({
                     compact
                   />
                 )}
-                {spaceAnalysisComplete && (
+                {designReferenceComplete && (
                   <Badge className="bg-primary/20 text-primary">
                     <Check className="w-3 h-3 mr-1" />
                     Done
                   </Badge>
                 )}
-                {spaceAnalysisRunning && (
+                {designReferenceRunning && (
                   <Badge className="bg-purple-500/20 text-purple-400">
                     <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                     Analyzing
                   </Badge>
                 )}
-                {spaceAnalysisPending && !spaceAnalysisRunning && !spaceAnalysisComplete && (
+                {designReferenceFailed && (
+                  <Badge variant="destructive">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    Failed
+                  </Badge>
+                )}
+                {designReferencePending && !designReferenceRunning && (
+                  <Button
+                    size="sm"
+                    onClick={handleRunDesignReferenceScan}
+                    disabled={isRunning || isRunningDesignRefScan}
+                  >
+                    {isRunningDesignRefScan ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                        Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4 mr-1" />
+                        Analyze References
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 0.2: Space Scan (REQUIRED - always shown) */}
+        {(spaceScanPending || spaceScanRunning || spaceScanComplete || spaceScanFailed || spaceAnalysisPending || spaceAnalysisRunning || spaceAnalysisComplete) && (
+          <div className="space-y-2">
+            <div className={cn(
+              "flex items-center justify-between p-3 rounded-lg border",
+              (spaceScanComplete || spaceAnalysisComplete) ? "border-primary/30 bg-primary/5" : "border-border/50 bg-card/50"
+            )}>
+              <div className="flex items-center gap-3">
+                <MapPin className="w-5 h-5 text-primary" />
+                <div>
+                  <p className="text-sm font-medium">Space Scan</p>
+                  <p className="text-xs text-muted-foreground">Step 0.2: Detect rooms and zones</p>
+                  {designReferenceComplete && (
+                    <p className="text-xs text-green-600 mt-0.5">
+                      ✓ Design references analyzed
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {(spaceScanRunning || spaceAnalysisRunning) && onRestartStep && (
+                  <StopResetStepButton
+                    stepNumber={0}
+                    stepName="Space Scan"
+                    isRunning={true}
+                    isPending={false}
+                    onReset={() => onRestartStep(0)}
+                    disabled={false}
+                    compact
+                  />
+                )}
+                {(spaceScanComplete || spaceAnalysisComplete) && (
+                  <Badge className="bg-primary/20 text-primary">
+                    <Check className="w-3 h-3 mr-1" />
+                    Done
+                  </Badge>
+                )}
+                {(spaceScanRunning || spaceAnalysisRunning) && (
+                  <Badge className="bg-purple-500/20 text-purple-400">
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    Scanning
+                  </Badge>
+                )}
+                {spaceScanFailed && (
+                  <Badge variant="destructive">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    Failed
+                  </Badge>
+                )}
+                {(spaceScanPending || spaceAnalysisPending) && !(spaceScanRunning || spaceAnalysisRunning) && !(spaceScanComplete || spaceAnalysisComplete) && (
                   <Button size="sm" onClick={onRunSpaceAnalysis} disabled={isRunning}>
+                    {/* TEMPORARY: Using legacy onRunSpaceAnalysis handler for Step 0.2 */}
+                    {/* Backend migrations (20260210150000) ensure proper isolation via jsonb_set() */}
+                    {/* This will be replaced with dedicated run-space-scan handler */}
                     <Play className="w-4 h-4 mr-1" />
-                    Analyze
+                    Scan Spaces
                   </Button>
                 )}
               </div>
@@ -1199,8 +1332,8 @@ function GlobalStepsSection({
             {/* Step 0 Controls Footer (Reset only - no rollback for Step 0) */}
             <StepControlsFooter
               stepNumber={0}
-              stepName="Space Analysis"
-              isRunning={spaceAnalysisRunning}
+              stepName="Space Scan"
+              isRunning={spaceScanRunning || spaceAnalysisRunning}
               isResetPending={isResetPending}
               isRollbackPending={isRollbackPending}
               onReset={(stepNum) => onRestartStep?.(stepNum)}
@@ -1210,16 +1343,19 @@ function GlobalStepsSection({
           </div>
         )}
 
-        {/* Space Analysis Results Panel */}
+        {/* ═══════════ STEP 0.2 SPACE SCAN OUTPUT (ONLY HERE) ═══════════ */}
+        {/* Space Analysis Results Panel - shows rooms/zones from Step 0.2 */}
+        {/* DO NOT RENDER THIS PANEL IN ANY OTHER STEP SECTION */}
         {spaceAnalysis && (
           <SpaceAnalysisPanel
             analysisData={spaceAnalysis}
-            isLoading={spaceAnalysisRunning}
+            isLoading={spaceScanRunning || spaceAnalysisRunning}
           />
         )}
+        {/* ═══════════ END STEP 0.2 OUTPUT ═══════════ */}
 
         {/* Space Graph Summary - Shows structured architectural graph */}
-        {spaceAnalysisComplete && (
+        {(spaceScanComplete || spaceAnalysisComplete) && (
           <SpaceGraphSummary
             spatialMap={spatialMap}
             isLoading={spatialMapLoading}
@@ -1396,7 +1532,7 @@ function GlobalStepsSection({
               bucket="outputs"
             />
 
-            {/* NEW: All Attempts Panel with Manual Scoring (like Multi Panoramas) */}
+            {/* Attempt History Panel - Read-only (QA controls in StageReviewPanel above) */}
             {step2Attempts && step2Attempts.length > 0 && (
               <div className="mt-4">
                 <Step2OutputsPanel
@@ -1404,16 +1540,6 @@ function GlobalStepsSection({
                   projectId={pipeline.project_id}
                   attempts={step2Attempts}
                   isLoading={isLoadingStep2Attempts}
-                  onAdvanceToNextStep={() => {
-                    // Advance to next step after approval
-                    onAction("continue", { fromStep: 2, toStep: 3 });
-                    onContinueToStep(2, "style_review");
-                  }}
-                  onRetryWithFeedback={(rejectionReason: string) => {
-                    // Trigger auto-retry with AI analysis of rejection feedback
-                    onAction("reject", { step: 2 });
-                    onRejectStep(2, rejectionReason);
-                  }}
                 />
               </div>
             )}
@@ -1473,7 +1599,7 @@ function GlobalStepsSection({
           </div>
         )}
 
-        {/* Step 3: Detect Spaces (SWAPPED - was Step 4) */}
+        {/* Step 3 (Internal): Space Scan (Spec: Step 0.2 - Detect spaces from floor plan) */}
         {step2Done && (
           <div
             className={cn(
@@ -1485,9 +1611,9 @@ function GlobalStepsSection({
               <div className="flex items-center gap-3">
                 <Box className="w-5 h-5 text-primary" />
                 <div>
-                  <p className="text-sm font-medium">Detect Spaces</p>
+                  <p className="text-sm font-medium">Space Scan</p>
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground">Step 3</p>
+                    <p className="text-xs text-muted-foreground">Step 0.2: Detect spaces</p>
                     {/* Quality indicator badge */}
                     <Badge variant="outline" className="text-xs px-1.5 py-0">
                       <Lock className="w-2.5 h-2.5 mr-0.5" />
@@ -1508,7 +1634,7 @@ function GlobalStepsSection({
                 {(step3Running || step3Done) && onRestartStep && (
                   <StopResetStepButton
                     stepNumber={3}
-                    stepName="Detect Spaces"
+                    stepName="Space Scan"
                     isRunning={step3Running}
                     isPending={false}
                     onReset={() => onRestartStep(3)}
@@ -1639,12 +1765,19 @@ function GlobalStepsSection({
           </div>
         )}
 
-        {/* Step 4: Camera Planning (SWAPPED - was Step 3) */}
-        {/* Camera Planning is EDITABLE until renders actually START (phase >= renders_pending/renders_in_progress)
+        {/* Step 4 (Internal): Camera Intent (Spec: Step 3 - Decision-Only Layer) */}
+        {/* Camera Intent is EDITABLE until renders actually START (phase >= renders_pending/renders_in_progress)
             "camera_plan_confirmed" = approved, but still editable.
-            Locked only when PHASE_STEP_MAP[phase] >= 5 (renders or later) */}
+            Locked only when PHASE_STEP_MAP[phase] >= 5 (renders or later)
+
+            What Camera Intent does (per authoritative spec):
+            - Use Camera Position Templates A–H
+            - Bind each template to a specific space
+            - Define human eye-level position and view direction
+            - NO rendering, NO design, NO QA here (decision-only)
+        */}
         {step3Done && (() => {
-          // COMMIT LOGIC: Camera Planning locks only after renders have started
+          // COMMIT LOGIC: Camera Intent locks only after renders have started
           // camera_plan_confirmed = approved but still editable
           // renders_pending/renders_in_progress/renders_review = locked (committed)
           const isCameraCommitted = PHASE_STEP_MAP[phase] >= 5;
@@ -1664,9 +1797,14 @@ function GlobalStepsSection({
                   <div className="flex items-center gap-3">
                     <Camera className="w-5 h-5 text-primary" />
                     <div>
-                      <p className="text-sm font-medium">Camera Planning</p>
                       <div className="flex items-center gap-2">
-                        <p className="text-xs text-muted-foreground">Step 4</p>
+                        <p className="text-sm font-medium">Camera Intent</p>
+                        <Badge variant="outline" className="text-xs">
+                          Decision-Only
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-muted-foreground">Step 3: Templates A–H</p>
                         {isCameraApproved && !isCameraCommitted && (
                           <span className="text-xs text-green-600">(Approved — still editable)</span>
                         )}
@@ -1674,11 +1812,11 @@ function GlobalStepsSection({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {/* Stop & Reset button for Camera Planning - visible when approved or committed */}
+                    {/* Stop & Reset button for Camera Intent - visible when approved or committed */}
                     {(isCameraApproved || isCameraCommitted) && onRestartStep && (
                       <StopResetStepButton
                         stepNumber={4}
-                        stepName="Camera Planning"
+                        stepName="Camera Intent"
                         isRunning={false}
                         isPending={false}
                         onReset={() => onRestartStep(4)}
@@ -1695,7 +1833,7 @@ function GlobalStepsSection({
                         disabled={isRunning || approvalLocked}
                       >
                         <Camera className="w-4 h-4 mr-2" />
-                        {isCameraApproved ? "Edit Camera Plan" : "Open Camera Planning"}
+                        {isCameraApproved ? "Edit Camera Intent" : "Define Camera Intent"}
                       </Button>
                     )}
                     {/* Draft badge - shown when not yet approved */}
@@ -1721,27 +1859,44 @@ function GlobalStepsSection({
                 </div>
               </div>
 
-              {/* Camera Planning Editor Modal - renders as fullscreen overlay */}
+              {/* Camera Intent Selector Modal - NEW Step 3 UI with Templates A-H */}
               {/* Only allow editing when not committed (renders not started) */}
               {cameraPlanningOpen && step2UploadId && !isCameraCommitted && (
-                <CameraPlanningEditor
-                  pipelineId={pipeline.id}
-                  step2UploadId={step2UploadId}
-                  onConfirm={() => {
-                    onConfirmCameraPlan();
-                    setCameraPlanningOpen(false);
-                  }}
-                  onClose={() => setCameraPlanningOpen(false)}
-                  isConfirming={isConfirmingCameraPlan}
-                  disabled={isRunning || approvalLocked}
-                  isApproved={isCameraApproved}
-                />
+                <Dialog open={cameraPlanningOpen} onOpenChange={setCameraPlanningOpen}>
+                  <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Camera Intent (Step 3)</DialogTitle>
+                      <DialogDescription>
+                        Select camera templates (A–H) for each space. This is a decision-only layer.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <CameraIntentSelector
+                      pipelineId={pipeline.id}
+                      spaces={spaces.map(space => ({
+                        id: space.id,
+                        name: space.name,
+                        space_type: space.space_type,
+                        adjacentSpaces: [], // TODO: Load from spatial map
+                      }))}
+                      onConfirm={() => {
+                        // CameraIntentSelector already calls save-camera-intents edge function
+                        // which transitions to camera_intent_confirmed phase
+                        // We only need to close dialog and refresh pipeline data
+                        // DO NOT call onConfirmCameraPlan() - that's legacy flow that might trigger renders/QA
+                        setCameraPlanningOpen(false);
+                        queryClient.invalidateQueries(['floorplan-pipeline', pipeline.id]);
+                      }}
+                      isConfirming={false}
+                      disabled={isRunning || approvalLocked}
+                    />
+                  </DialogContent>
+                </Dialog>
               )}
 
               {/* Step Controls Footer (Reset + Back) */}
               <StepControlsFooter
                 stepNumber={4}
-                stepName="Camera Planning"
+                stepName="Camera Intent"
                 isRunning={false}
                 isResetPending={isResetPending}
                 isRollbackPending={isRollbackPending}
@@ -1752,6 +1907,49 @@ function GlobalStepsSection({
             </div>
           );
         })()}
+
+        {/* ═══════════ CAPABILITY SLOTS - DISABLED PENDING MARBLE ═══════════ */}
+        {/* Step 6 (Internal): Capability Slots (Future/Disabled) */}
+        {/* This is the OLD manual camera planning feature, now disabled pending MARBLE engine */}
+        {/* HIDDEN: Not part of Phase 1 pipeline. Will be re-enabled for Step 6-9 (panorama features) */}
+        {/*
+        {(cameraPlanConfirmed || cameraIntentConfirmed) && (
+          <div className="space-y-2">
+            <div className="p-3 rounded-lg border border-border/30 bg-muted/30 opacity-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Box className="w-5 h-5 text-muted-foreground" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-muted-foreground">Capability Slots</p>
+                      <Badge variant="outline" className="text-xs border-muted-foreground/50">
+                        Future / Disabled
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Advanced panoramic camera planning (requires engine-class models)
+                    </p>
+                  </div>
+                </div>
+                <Button disabled size="sm" variant="ghost">
+                  <Settings2 className="w-4 h-4 mr-2" />
+                  Coming Soon
+                </Button>
+              </div>
+            </div>
+            <Alert className="border-muted-foreground/20">
+              <Info className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                <strong>What Capability Slots Will Do:</strong> Manual panorama point placement
+                for future 360° stitching capabilities. Currently disabled pending MARBLE engine
+                integration (Step 6 in spec). The current pipeline uses deterministic Camera Intent
+                (Templates A–H) instead.
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+        */}
+        {/* ═══════════ END HIDDEN SECTION ═══════════ */}
       </div>
 
       {/* Preview Dialog */}
@@ -1818,6 +2016,8 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   const [step7SettingsOpen, setStep7SettingsOpen] = useState(false);
   // Per-space render control: track which space is currently being rendered
   const [renderingSpaceId, setRenderingSpaceId] = useState<string | null>(null);
+  // Step 0.1: Design Reference Scan state
+  const [isRunningDesignRefScan, setIsRunningDesignRefScan] = useState(false);
 
   const {
     spaces: pipelineSpaces,
@@ -1959,13 +2159,70 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   }, [runSpaceAnalysis, pipeline.id]);
 
   // Handlers for global steps
+
+  // Step 0.1: Design Reference Scan handler
+  const handleRunDesignReferenceScan = useCallback(async () => {
+    setIsRunningDesignRefScan(true);
+    try {
+      const designRefIds = (pipeline.step_outputs as any)?.design_reference_ids || [];
+
+      if (designRefIds.length === 0) {
+        toast.toast({
+          title: "No Design References",
+          description: "Please upload design reference images first.",
+          variant: "destructive",
+        });
+        setIsRunningDesignRefScan(false);
+        return;
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch('/functions/v1/run-design-reference-scan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          pipeline_id: pipeline.id,
+          design_ref_ids: designRefIds,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to analyze design references');
+      }
+
+      toast.toast({
+        title: "Design References Analyzed",
+        description: "Style analysis complete. Proceeding to Space Scan.",
+      });
+
+      // Refresh pipeline data
+      queryClient.invalidateQueries(['floorplan-pipeline', pipeline.id]);
+
+    } catch (error) {
+      console.error('[handleRunDesignReferenceScan] Error:', error);
+      toast.toast({
+        title: 'Analysis Failed',
+        description: error instanceof Error ? error.message : 'Failed to analyze design references',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRunningDesignRefScan(false);
+    }
+  }, [pipeline.id, pipeline.step_outputs, toast, queryClient]);
+
   const handleRunTopDown = useCallback(() => {
     runTopDown3D.mutate({ pipelineId: pipeline.id });
   }, [runTopDown3D, pipeline.id]);
 
   const handleRunStyle = useCallback(() => {
-    runStyleTopDown.mutate({ pipelineId: pipeline.id });
-  }, [runStyleTopDown, pipeline.id]);
+    const refIds = (pipeline.step_outputs as any)?.design_reference_ids || [];
+    runStyleTopDown.mutate({ pipelineId: pipeline.id, designRefUploadIds: refIds });
+  }, [runStyleTopDown, pipeline.id, pipeline.step_outputs]);
 
   const handleRunDetectSpaces = useCallback(() => {
     if (!styledImageUploadId) {
@@ -2256,6 +2513,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
           step_number: step,
           is_retry: true,
           rejection_notes: notes,
+          design_ref_upload_ids: step === 2 ? (pipeline.step_outputs as any)?.design_reference_ids || [] : undefined,
         },
       });
 
@@ -2777,7 +3035,11 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
             </CollapsibleContent>
           </Collapsible>
 
-          {/* Spaces Section (Steps 4-6) with Dynamic Batch Actions */}
+          {/* Spaces Section (Internal Steps 5-7):
+              - Step 5 = Render + QA (Spec: Step 4 Prompts + Step 5 Outputs & QA)
+              - Step 6 = Panorama Polish (Spec: Step 8 - EXTERNAL, Phase 1 skip)
+              - Step 7 = Final Approval (Spec: Step 10 - lock & archive)
+          */}
           {showSpacesSection && (() => {
             // Split spaces into active and excluded groups
             const activeSpaces = spaces.filter(s => !s.is_excluded && s.include_in_generation !== false);

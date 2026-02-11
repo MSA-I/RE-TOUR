@@ -21,7 +21,13 @@
 
 export type CTAType = "RUN" | "CONTINUE" | "APPROVE" | "REJECT" | "EDITOR" | "DISABLED" | "NONE";
 
-export type ActionName = 
+export type ActionName =
+  | "DESIGN_REFERENCE_SCAN_START"
+  | "DESIGN_REFERENCE_SCAN_RUNNING"
+  | "DESIGN_REFERENCE_SCAN_CONTINUE"
+  | "SPACE_SCAN_START"
+  | "SPACE_SCAN_RUNNING"
+  | "SPACE_SCAN_CONTINUE"
   | "SPACE_ANALYSIS_START"
   | "SPACE_ANALYSIS_RUNNING"
   | "SPACE_ANALYSIS_CONTINUE"
@@ -31,6 +37,8 @@ export type ActionName =
   | "STYLE_START"
   | "STYLE_RUNNING"
   | "STYLE_APPROVE"
+  | "CAMERA_INTENT_SELECT"
+  | "CAMERA_INTENT_CONTINUE"
   | "CAMERA_PLAN_EDIT"
   | "CAMERA_PLAN_CONTINUE"
   | "DETECT_SPACES_START"
@@ -62,15 +70,79 @@ export interface PhaseActionConfig {
 
 export const PHASE_ACTION_CONTRACT: Record<string, PhaseActionConfig> = {
   // ─────────────────────────────────────────────────────────────────────
-  // Step 0: Space Analysis
+  // Step 0.1: Design Reference Scan (OPTIONAL)
+  // ─────────────────────────────────────────────────────────────────────
+  design_reference_pending: {
+    step: 0,
+    ctaType: "RUN",
+    endpoint: "run-design-reference-scan",
+    actionName: "DESIGN_REFERENCE_SCAN_START" as ActionName,
+    ctaLabel: "Analyze Design References",
+  },
+  design_reference_running: {
+    step: 0,
+    ctaType: "DISABLED",
+    endpoint: null,
+    actionName: "DESIGN_REFERENCE_SCAN_RUNNING" as ActionName,
+    ctaLabel: "Analyzing References...",
+  },
+  design_reference_complete: {
+    step: 0,
+    ctaType: "CONTINUE",
+    endpoint: "continue-pipeline-step",
+    actionName: "DESIGN_REFERENCE_SCAN_CONTINUE" as ActionName,
+    ctaLabel: "Continue to Space Scan",
+  },
+  design_reference_failed: {
+    step: 0,
+    ctaType: "RUN",
+    endpoint: "run-design-reference-scan",
+    actionName: "DESIGN_REFERENCE_SCAN_START" as ActionName,
+    ctaLabel: "Retry Design Reference Scan",
+  },
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Step 0.2: Space Scan (REQUIRED)
   // ─────────────────────────────────────────────────────────────────────
   upload: {
     step: 0,
     ctaType: "RUN",
-    endpoint: "run-space-analysis",
-    actionName: "SPACE_ANALYSIS_START",
-    ctaLabel: "Analyze Floor Plan",
+    endpoint: "run-space-scan",
+    actionName: "SPACE_SCAN_START" as ActionName,
+    ctaLabel: "Scan Spaces from Floor Plan",
   },
+  space_scan_pending: {
+    step: 0,
+    ctaType: "RUN",
+    endpoint: "run-space-scan",
+    actionName: "SPACE_SCAN_START" as ActionName,
+    ctaLabel: "Start Space Scan",
+  },
+  space_scan_running: {
+    step: 0,
+    ctaType: "DISABLED",
+    endpoint: null,
+    actionName: "SPACE_SCAN_RUNNING" as ActionName,
+    ctaLabel: "Scanning Spaces...",
+  },
+  space_scan_complete: {
+    step: 0,
+    ctaType: "CONTINUE",
+    endpoint: "continue-pipeline-step",
+    actionName: "SPACE_SCAN_CONTINUE" as ActionName,
+    ctaLabel: "Continue to Top-Down 3D",
+  },
+  space_scan_failed: {
+    step: 0,
+    ctaType: "RUN",
+    endpoint: "run-space-scan",
+    actionName: "SPACE_SCAN_START" as ActionName,
+    ctaLabel: "Retry Space Scan",
+  },
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Step 0: Space Analysis (LEGACY - for backwards compatibility)
+  // ─────────────────────────────────────────────────────────────────────
   space_analysis_pending: {
     step: 0,
     ctaType: "RUN",
@@ -169,14 +241,39 @@ export const PHASE_ACTION_CONTRACT: Record<string, PhaseActionConfig> = {
   },
 
   // ─────────────────────────────────────────────────────────────────────
-  // Step 4: Camera Planning (SWAPPED - was Step 3)
+  // Step 3 (spec): Camera Intent (Templates A-H) - NEW
+  // ─────────────────────────────────────────────────────────────────────
+  camera_intent_pending: {
+    step: 3,
+    ctaType: "EDITOR",
+    endpoint: null, // Opens CameraIntentSelector, no backend call until confirm
+    actionName: "CAMERA_INTENT_SELECT" as ActionName,
+    ctaLabel: "Define Camera Intent",
+  },
+  camera_intent_confirmed: {
+    step: 3,
+    ctaType: "CONTINUE",
+    endpoint: "continue-pipeline-step",
+    actionName: "CAMERA_INTENT_CONTINUE" as ActionName,
+    ctaLabel: "Continue to Renders",
+  },
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Step 4 (internal): Camera Planning (LEGACY - now Capability Slots)
   // ─────────────────────────────────────────────────────────────────────
   camera_plan_pending: {
     step: 4,
-    ctaType: "EDITOR",
-    endpoint: null, // Opens CameraPlanningEditor, no backend call
+    ctaType: "DISABLED", // Changed from EDITOR - feature disabled
+    endpoint: null,
     actionName: "CAMERA_PLAN_EDIT",
-    ctaLabel: "Plan Camera Positions",
+    ctaLabel: "Capability Slots (Coming Soon)",
+  },
+  camera_plan_in_progress: {
+    step: 4,
+    ctaType: "DISABLED",
+    endpoint: null,
+    actionName: "CAMERA_PLAN_EDIT",
+    ctaLabel: "Camera Planning In Progress",
   },
   camera_plan_confirmed: {
     step: 4,

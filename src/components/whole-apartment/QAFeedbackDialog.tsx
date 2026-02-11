@@ -21,22 +21,36 @@ export const QA_CATEGORIES = {
 
 export type QACategoryKey = keyof typeof QA_CATEGORIES;
 
-// NEW: Structured QA Tags for learning system
-export const QA_TAGS = [
-  "Geometry / Layout",
-  "Scale / Proportions",
-  "Doors / Openings",
-  "Windows",
-  "Room Function / Misclassification",
-  "Furniture Placement",
-  "Style Drift",
-  "Lighting / Exposure",
-  "Camera / Eye-Level / FOV",
-  "Artifacts / Broken Image",
+// NEW: Structured QA Tags for learning system - SEPARATE FOR APPROVE VS REJECT
+
+// Tags for APPROVAL: What is GOOD and should be preserved
+export const APPROVE_TAGS = [
+  "Accurate Layout",
+  "Correct Scale",
+  "Correct Openings",
+  "Good Camera Intent Match",
+  "Style Match",
+  "Clear / Readable",
+  "Good Lighting",
   "Other",
 ] as const;
 
-export type QATag = typeof QA_TAGS[number];
+// Tags for REJECTION: What is WRONG and should be avoided/fixed
+export const REJECT_TAGS = [
+  "Geometry/Layout Wrong",
+  "Scale/Proportions Wrong",
+  "Doors/Openings Wrong",
+  "Windows Wrong",
+  "Camera Not Eye-Level / Wrong FOV",
+  "Style Drift",
+  "Artifacts / Broken Image",
+  "Missing Details / Hallucination",
+  "Other",
+] as const;
+
+export type ApproveTag = typeof APPROVE_TAGS[number];
+export type RejectTag = typeof REJECT_TAGS[number];
+export type QATag = ApproveTag | RejectTag;
 
 export interface QAFeedbackData {
   decision: "approved" | "rejected";
@@ -47,6 +61,8 @@ export interface QAFeedbackData {
   score: number | null;
   /** NEW: Structured tags for learning system */
   tags: string[];
+  /** NEW: Tag type indicator - which tag set was used */
+  tags_type: "approve" | "reject";
 }
 
 interface QAFeedbackDialogProps {
@@ -166,14 +182,18 @@ export function QAFeedbackDialog({
     }
 
     const tags = Array.from(selectedTags);
+    const tags_type = mode === "approve" ? "approve" : "reject";
 
     // Map first tag to category for backward compatibility
     const tagToCategoryMap: Record<string, QACategoryKey> = {
-      "Scale / Proportions": "furniture_scale",
-      "Furniture Placement": "extra_furniture",
-      "Geometry / Layout": "structural_change",
-      "Room Function / Misclassification": "structural_change",
+      "Scale/Proportions Wrong": "furniture_scale",
+      "Correct Scale": "furniture_scale",
+      "Doors/Openings Wrong": "structural_change",
+      "Correct Openings": "structural_change",
+      "Geometry/Layout Wrong": "structural_change",
+      "Accurate Layout": "structural_change",
       "Style Drift": "flooring_mismatch",
+      "Style Match": "flooring_mismatch",
     };
     const category = tagToCategoryMap[tags[0]] || "other";
 
@@ -184,6 +204,7 @@ export function QAFeedbackDialog({
       qaWasWrong,
       score,
       tags, // NEW: Include structured tags
+      tags_type, // NEW: Tag type indicator
     });
   }, [mode, reasonShort, qaWasWrong, score, selectedTags, onSubmit]);
 
@@ -320,16 +341,18 @@ export function QAFeedbackDialog({
             )}
           </div>
 
-          {/* NEW: QA Tags (multi-select) - REQUIRED */}
+          {/* NEW: QA Tags (multi-select) - REQUIRED - Different tags for approve vs reject */}
           <div className="space-y-2">
             <Label className="flex items-center gap-1">
-              QA Tags <span className="text-destructive">*</span>
+              {mode === "approve" ? "Approve Tags" : "Reject Tags"} <span className="text-destructive">*</span>
             </Label>
             <p className="text-xs text-muted-foreground mb-2">
-              Tags are used to improve future retries and learning. Select all that apply.
+              {mode === "approve"
+                ? "Select what is GOOD and should be preserved in future outputs."
+                : "Select what is WRONG and should be avoided/fixed in future outputs."}
             </p>
             <div className="grid grid-cols-1 gap-2 max-h-[180px] overflow-y-auto border rounded-md p-3">
-              {QA_TAGS.map((tag) => (
+              {(mode === "approve" ? APPROVE_TAGS : REJECT_TAGS).map((tag) => (
                 <div key={tag} className="flex items-center space-x-2">
                   <Checkbox
                     id={`tag-${tag}`}
@@ -352,7 +375,14 @@ export function QAFeedbackDialog({
             {selectedTags.size > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
                 {Array.from(selectedTags).map((tag) => (
-                  <Badge key={tag} variant="secondary" className="text-xs">
+                  <Badge
+                    key={tag}
+                    variant="secondary"
+                    className={cn(
+                      "text-xs",
+                      mode === "approve" ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
+                    )}
+                  >
                     {tag}
                   </Badge>
                 ))}

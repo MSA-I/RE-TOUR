@@ -54,14 +54,14 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<"original" | "styled">("styled");
-  
+
   // Zoom and pan state for inline viewer
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
-  
+
   // Fullscreen state
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [fullscreenZoom, setFullscreenZoom] = useState(1);
@@ -74,16 +74,16 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    
+
     const nativeWheelHandler = (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const delta = e.deltaY > 0 ? -0.1 : 0.1;
       setZoom(z => Math.max(0.5, Math.min(3, z + delta)));
     };
-    
+
     container.addEventListener('wheel', nativeWheelHandler, { passive: false });
-    
+
     return () => {
       container.removeEventListener('wheel', nativeWheelHandler);
     };
@@ -93,16 +93,16 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
   useEffect(() => {
     const container = fullscreenContainerRef.current;
     if (!container || !fullscreenOpen) return;
-    
+
     const nativeFullscreenWheelHandler = (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const delta = e.deltaY > 0 ? -0.15 : 0.15;
       setFullscreenZoom(z => Math.max(0.5, Math.min(5, z + delta)));
     };
-    
+
     container.addEventListener('wheel', nativeFullscreenWheelHandler, { passive: false });
-    
+
     return () => {
       container.removeEventListener('wheel', nativeFullscreenWheelHandler);
     };
@@ -111,7 +111,7 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
   // Load original floor plan image
   useEffect(() => {
     if (!floorPlanUploadId) return;
-    
+
     const loadImage = async () => {
       setLoading(true);
       try {
@@ -120,12 +120,12 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
           .select('bucket, path')
           .eq('id', floorPlanUploadId)
           .single();
-        
+
         if (uploadError || !upload) {
           console.error("Failed to fetch upload record:", uploadError);
           return;
         }
-        
+
         const result = await getSignedViewUrl(upload.bucket, upload.path);
         if (result.signedUrl) {
           setOriginalImageUrl(result.signedUrl);
@@ -144,7 +144,7 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
       setStyledImageUrl(null);
       return;
     }
-    
+
     const loadStyledImage = async () => {
       try {
         const { data: upload, error: uploadError } = await supabase
@@ -152,12 +152,12 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
           .select('bucket, path')
           .eq('id', styledOutputUploadId)
           .single();
-        
+
         if (uploadError || !upload) {
           console.error("Failed to fetch styled upload record:", uploadError);
           return;
         }
-        
+
         const result = await getSignedViewUrl(upload.bucket, upload.path);
         if (result.signedUrl) {
           setStyledImageUrl(result.signedUrl);
@@ -272,16 +272,16 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
         className
       )}>
         {/* Sticky Header - always visible with controls */}
-        <div 
+        <div
           className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors border-b border-border/30"
           onClick={() => setCollapsed(!collapsed)}
         >
           <div className="flex items-center gap-2">
             <Map className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium">
-              {hasStyledOutput ? "Floor Plan (Step 3 Output)" : "Source Floor Plan"}
+              {hasStyledOutput ? "Floor Plan (Step 2 Styled)" : "Source Floor Plan"}
             </span>
-            
+
             {/* Badges for scale/geometry locks */}
             {hasScaleLock && (
               <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
@@ -367,7 +367,7 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "original" | "styled")} className="mb-2">
                 <TabsList className="h-8 w-full">
                   <TabsTrigger value="styled" className="flex-1 text-xs">
-                    Step 3 Styled
+                    Step 2 Styled
                   </TabsTrigger>
                   <TabsTrigger value="original" className="flex-1 text-xs">
                     Original Plan
@@ -376,13 +376,13 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
               </Tabs>
             )}
 
-            <div 
+            <div
               ref={containerRef}
               className={cn(
                 "relative rounded-md bg-muted/30 overflow-hidden select-none",
                 isDragging ? "cursor-grabbing" : "cursor-grab"
               )}
-              style={{ 
+              style={{
                 height: "200px",
                 touchAction: "none",
                 overscrollBehavior: "contain"
@@ -399,10 +399,10 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
               ) : currentImageUrl ? (
                 <img
                   src={currentImageUrl}
-                  alt={activeTab === "styled" ? "Step 3 styled floor plan" : "Source floor plan"}
+                  alt={activeTab === "styled" ? "Step 2 styled floor plan" : "Source floor plan"}
                   className="transition-transform duration-75 pointer-events-none absolute inset-0 m-auto"
                   draggable={false}
-                  style={{ 
+                  style={{
                     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                     transformOrigin: "center center",
                     maxWidth: "100%",
@@ -451,7 +451,7 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
             <div className="flex items-center justify-between">
               <DialogTitle className="flex items-center gap-2">
                 <Map className="w-5 h-5 text-primary" />
-                {hasStyledOutput ? "Floor Plan Comparison" : "Source Floor Plan"}
+                {hasStyledOutput ? "Styled Floor Plan (Step 2)" : "Source Floor Plan"}
               </DialogTitle>
               <div className="flex items-center gap-1">
                 <Button size="sm" variant="ghost" onClick={handleFullscreenZoomOut}>
@@ -476,7 +476,7 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "original" | "styled")}>
                 <TabsList className="w-full">
                   <TabsTrigger value="styled" className="flex-1">
-                    Step 3 Styled Output
+                    Step 2 Styled Output
                   </TabsTrigger>
                   <TabsTrigger value="original" className="flex-1">
                     Original Floor Plan
@@ -486,13 +486,13 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
             </div>
           )}
 
-          <div 
+          <div
             ref={fullscreenContainerRef}
             className={cn(
               "flex-1 p-4 pt-2 select-none overflow-hidden flex items-center justify-center",
               fullscreenDragging ? "cursor-grabbing" : "cursor-grab"
             )}
-            style={{ 
+            style={{
               height: "calc(95vh - 180px)",
               touchAction: "none",
               overscrollBehavior: "contain"
@@ -505,10 +505,10 @@ export const SourcePlanViewer = memo(function SourcePlanViewer({
             {currentImageUrl && (
               <img
                 src={currentImageUrl}
-                alt={activeTab === "styled" ? "Step 3 styled floor plan" : "Source floor plan"}
+                alt={activeTab === "styled" ? "Step 2 styled floor plan" : "Source floor plan"}
                 className="transition-transform duration-75 pointer-events-none"
                 draggable={false}
-                style={{ 
+                style={{
                   transform: `translate(${fullscreenPan.x}px, ${fullscreenPan.y}px) scale(${fullscreenZoom})`,
                   transformOrigin: "center center",
                   maxWidth: "100%",

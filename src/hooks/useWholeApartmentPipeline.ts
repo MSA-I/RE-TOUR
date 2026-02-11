@@ -137,14 +137,16 @@ export const WHOLE_APARTMENT_PHASES = {
   style_pending: "style_pending",
   style_running: "style_running",
   style_review: "style_review",
-  // Step 3: Camera Planning (NEW)
-  camera_plan_pending: "camera_plan_pending",
-  camera_plan_confirmed: "camera_plan_confirmed",
-  // Step 4 (Detect spaces) - was Step 3
+  // Step 3 (Internal) = Space Scan (Spec Step 0.2)
   detect_spaces_pending: "detect_spaces_pending",
   detecting_spaces: "detecting_spaces",
   spaces_detected: "spaces_detected",
-  // Step 5 (Renders) - was Step 4
+  // Step 4 (Internal) = Camera Intent (Spec Step 3 - decision-only layer)
+  // User places camera markers, binds templates A-H to spaces
+  camera_plan_pending: "camera_plan_pending",
+  camera_plan_in_progress: "camera_plan_in_progress",
+  camera_plan_confirmed: "camera_plan_confirmed",
+  // Step 5 (Internal) = Render + QA (Spec Step 4 & 5)
   renders_pending: "renders_pending",
   renders_in_progress: "renders_in_progress",
   renders_review: "renders_review",
@@ -164,58 +166,60 @@ export const WHOLE_APARTMENT_PHASES = {
  * ═══════════════════════════════════════════════════════════════════════════
  * PHASE → STEP CONTRACT (AUTHORITATIVE)
  * ═══════════════════════════════════════════════════════════════════════════
- * 
+ *
  * ⚠️  WARNING: DO NOT MODIFY WITHOUT UPDATING ALL LOCATIONS  ⚠️
- * 
+ *
  * This mapping MUST be kept in sync with:
  *   1. supabase/functions/_shared/pipeline-phase-step-contract.ts
  *   2. Database trigger: enforce_phase_step_consistency (migration SQL)
- * 
- * Any change to a phase name or step number MUST be updated in all 3 places.
+ *
+ * Internal step numbers are preserved (no renumbering).
+ * Step names updated for semantic alignment with authoritative spec.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export const PHASE_STEP_MAP: Record<string, number> = {
-  // Step 0: Initial / Analysis
+  // Step 0 (Internal) = Input Analysis (Spec: Step 0)
   upload: 0,
   space_analysis_pending: 0,
   space_analysis_running: 0,
   space_analysis_complete: 0,
-  
-  // Step 1: Top-Down 3D
+
+  // Step 1 (Internal) = Realistic 2D Plan (Spec: Step 1)
   top_down_3d_pending: 1,
   top_down_3d_running: 1,
   top_down_3d_review: 1,
-  
-  // Step 2: Style
+
+  // Step 2 (Internal) = Style Application (Spec: Step 2)
   style_pending: 2,
   style_running: 2,
   style_review: 2,
-  
-  // Step 3: Detect Spaces (SWAPPED - was Step 4)
+
+  // Step 3 (Internal) = Space Scan (Spec: Step 0.2 - detect spaces)
   detect_spaces_pending: 3,
   detecting_spaces: 3,
   spaces_detected: 3,
-  
-  // Step 4: Camera Planning (SWAPPED - was Step 3)
+
+  // Step 4 (Internal) = Camera Intent (Spec: Step 3 - decision-only layer)
   camera_plan_pending: 4,
+  camera_plan_in_progress: 4,
   camera_plan_confirmed: 4,
-  
-  // Step 5: Renders
+
+  // Step 5 (Internal) = Render + QA (Spec: Step 4 & 5 - prompts + outputs + QA)
   renders_pending: 5,
   renders_in_progress: 5,
   renders_review: 5,
-  
-  // Step 6: Panoramas
+
+  // Step 6 (Internal) = Panorama Polish (Spec: Step 8 - EXTERNAL, not in Phase 1)
   panoramas_pending: 6,
   panoramas_in_progress: 6,
   panoramas_review: 6,
-  
-  // Step 7: Merge
+
+  // Step 7 (Internal) = Final Approval (Spec: Step 10 - lock & archive)
   merging_pending: 7,
   merging_in_progress: 7,
   merging_review: 7,
   completed: 7,
-  
+
   // Terminal/Error
   failed: 0,
 };
@@ -223,42 +227,109 @@ export const PHASE_STEP_MAP: Record<string, number> = {
 /**
  * Legal phase transitions for continue actions.
  * Maps from a "review" or "confirmed" phase to the next "pending" phase.
- * 
+ *
  * ⚠️  WARNING: Update this when adding new phases  ⚠️
- * 
- * FLOW ORDER (SWAPPED):
- * Step 2 (style_review) → Step 3 (detect_spaces_pending)
- * Step 3 (spaces_detected) → Step 4 (camera_plan_pending)
- * Step 4 (camera_plan_confirmed) → Step 5 (renders_pending)
+ *
+ * FLOW ORDER (Semantic alignment with spec):
+ * Step 2 (style_review) → Step 3 (detect_spaces_pending) [Space Scan]
+ * Step 3 (spaces_detected) → Step 4 (camera_plan_pending) [Camera Intent]
+ * Step 4 (camera_plan_confirmed) → Step 5 (renders_pending) [Render + QA]
  */
 export const LEGAL_PHASE_TRANSITIONS: Record<string, string> = {
   // Step 0 → Step 1
   "space_analysis_complete": "top_down_3d_pending",
   // Step 1 → Step 2
   "top_down_3d_review": "style_pending",
-  // Step 2 → Step 3 (Detect Spaces)
+  // Step 2 → Step 3 (Space Scan)
   "style_review": "detect_spaces_pending",
-  // Step 3 → Step 4 (Camera Planning)
+  // Step 3 → Step 4 (Camera Intent)
   "spaces_detected": "camera_plan_pending",
-  // Step 4 → Step 5 (Renders)
+  // Step 4 → Step 5 (Render + QA)
   "camera_plan_confirmed": "renders_pending",
-  // Step 5 → Step 6
+  // Step 5 → Step 6 (Panorama Polish - EXTERNAL, skip in Phase 1)
   "renders_review": "panoramas_pending",
-  // Step 6 → Step 7
+  // Step 6 → Step 7 (Final Approval - skip in Phase 1)
   "panoramas_review": "merging_pending",
   // Step 7 → Complete
   "merging_review": "completed",
 };
 
+/**
+ * Step names aligned with authoritative pipeline spec.
+ * Internal step numbers remain unchanged (semantic alignment only).
+ *
+ * Spec mapping:
+ * - Internal Step 0 = Spec Step 0 (Input Analysis: 0.1 Design Reference + 0.2 Space Scan)
+ * - Internal Step 1 = Spec Step 1 (Realistic 2D Plan)
+ * - Internal Step 2 = Spec Step 2 (Style Application)
+ * - Internal Step 3 = Spec Step 0.2 (Space Scan - detect spaces)
+ * - Internal Step 4 = Spec Step 3 (Camera Intent - decision-only layer)
+ * - Internal Step 5 = Spec Step 4 & 5 (Prompt Templates + NanoBanana + QA)
+ * - Internal Step 6 = Spec Step 8 (Panorama Polish - EXTERNAL, Phase 1 skips)
+ * - Internal Step 7 = Spec Step 10 (Final Approval - Phase 1 skips)
+ */
 export const WHOLE_APARTMENT_STEP_NAMES = [
-  "Space Analysis",           // Step 0
-  "Floor Plan → Top-Down 3D", // Step 1
-  "Style Top-Down",           // Step 2
-  "Detect Spaces",            // Step 3 (SWAPPED - was Camera Planning)
-  "Camera Planning",          // Step 4 (SWAPPED - was Detect Spaces)
-  "Dual Renders per Space",   // Step 5
-  "Panoramas per Space",      // Step 6
-  "Merge to Final 360",       // Step 7
+  "Input Analysis (0.1 + 0.2)", // Step 0 (Spec: 0.1 Design Reference + 0.2 Space Scan) - NOW SPLIT
+  "Realistic 2D Plan",          // Step 1 (Spec: Step 1)
+  "Style Application",          // Step 2 (Spec: Step 2)
+  "Space Scan",                 // Step 3 (Internal legacy, mapped to Spec 0.2)
+  "Camera Intent",              // Step 4 (Internal, mapped to Spec Step 3 - Templates A-H)
+  "Render + QA",                // Step 5 (Internal, mapped to Spec Steps 4 & 5)
+  "Capability Slots",           // Step 6 (Future/Disabled - manual camera planning)
+  "Final Approval",             // Step 7 (Spec: Step 10 - lock & archive)
+];
+
+/**
+ * Step badges for UI display
+ * Maps step index to badge text (null = no badge)
+ */
+export const STEP_BADGES: Record<number, string | null> = {
+  0: null,
+  1: null,
+  2: null,
+  3: null,
+  4: "Decision-Only",      // Camera Intent (Step 3 in spec)
+  5: null,
+  6: "Future / Disabled",  // Capability Slots (manual camera planning)
+  7: null,
+};
+
+/**
+ * Step 0 sub-steps (split into 0.1 and 0.2)
+ */
+export const STEP_0_SUBSTEPS = [
+  {
+    id: "0.1",
+    name: "Design Reference Scan",
+    description: "Analyze style, colors, and materials from reference images",
+    optional: true,
+  },
+  {
+    id: "0.2",
+    name: "Space Scan",
+    description: "Detect rooms, zones, and spatial relationships from floor plan",
+    required: true,
+  },
+];
+
+/**
+ * Locked Pipeline Display Structure (per authoritative spec)
+ * User-facing step labels and numbering for the top stepper.
+ * Internal step indices (0-7) remain unchanged for state machine compatibility.
+ */
+export const LOCKED_PIPELINE_DISPLAY = [
+  { stepNum: "0.1", label: "Design Ref", internalStep: 0, futurePhase: false },
+  { stepNum: "0.2", label: "Space Scan", internalStep: 0, futurePhase: false },
+  { stepNum: "1", label: "2D Plan", internalStep: 1, futurePhase: false },
+  { stepNum: "2", label: "Style", internalStep: 2, futurePhase: false },
+  { stepNum: "3", label: "Camera Intent", internalStep: 4, futurePhase: false },
+  { stepNum: "4", label: "Prompts", internalStep: 5, futurePhase: false },
+  { stepNum: "5", label: "Outputs+QA", internalStep: 5, futurePhase: false },
+  { stepNum: "6", label: "Marble", internalStep: 6, futurePhase: true },
+  { stepNum: "7", label: "Intermediate", internalStep: 6, futurePhase: true },
+  { stepNum: "8", label: "Panorama", internalStep: 6, futurePhase: true },
+  { stepNum: "9", label: "Final QA", internalStep: 6, futurePhase: true },
+  { stepNum: "10", label: "Final Approval", internalStep: 7, futurePhase: false },
 ];
 
 // ============= Main Hook =============
@@ -315,7 +386,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     refetchInterval: (query) => {
       // Auto-refetch every 5s if any render is in "generating" or "running" state
       const spaces = query.state.data as PipelineSpace[] | undefined;
-      const hasActiveGeneration = spaces?.some(s => 
+      const hasActiveGeneration = spaces?.some(s =>
         s.renders?.some(r => ["generating", "running", "retrying"].includes(r.status)) ||
         s.panoramas?.some(p => ["generating", "running", "retrying"].includes(p.status)) ||
         (s.final360 && ["generating", "running", "retrying"].includes(s.final360.status))
@@ -332,7 +403,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     );
     let totalAssets = activeSpaces.length * 5; // 2 renders + 2 panoramas + 1 final360 per space
     let completedAssets = 0;
-    
+
     for (const space of activeSpaces) {
       if (space.renders?.find(r => r.kind === "A")?.locked_approved) completedAssets++;
       if (space.renders?.find(r => r.kind === "B")?.locked_approved) completedAssets++;
@@ -340,7 +411,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
       if (space.panoramas?.find(p => p.kind === "B")?.locked_approved) completedAssets++;
       if (space.final360?.locked_approved) completedAssets++;
     }
-    
+
     return totalAssets > 0 ? Math.round((completedAssets / totalAssets) * 100) : 0;
   })() : 0;
 
@@ -464,13 +535,13 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         .select("whole_apartment_phase")
         .eq("id", pipelineId)
         .maybeSingle();
-      
+
       if (metaError) throw metaError;
       if (!pipelineMeta) throw new Error("Pipeline not found");
-      
+
       const currentPhase = pipelineMeta.whole_apartment_phase ?? "upload";
       console.log(`[TOP_DOWN_3D_START] Current phase: ${currentPhase}`);
-      
+
       // If phase is space_analysis_complete, need to advance first
       if (currentPhase === "space_analysis_complete") {
         console.log("[TOP_DOWN_3D_START] Phase is space_analysis_complete, calling continue-pipeline-step first");
@@ -564,11 +635,11 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   // Run Step 2: Style Top-Down
   // If phase is top_down_3d_review (approved), first advance to style_pending, then run.
   const runStyleTopDown = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      designRefUploadIds 
-    }: { 
-      pipelineId: string; 
+    mutationFn: async ({
+      pipelineId,
+      designRefUploadIds
+    }: {
+      pipelineId: string;
       designRefUploadIds?: string[];
     }) => {
       // First check current phase
@@ -577,13 +648,13 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         .select("whole_apartment_phase")
         .eq("id", pipelineId)
         .maybeSingle();
-      
+
       if (metaError) throw metaError;
       if (!pipelineMeta) throw new Error("Pipeline not found");
-      
+
       const currentPhase = pipelineMeta.whole_apartment_phase ?? "upload";
       console.log(`[STYLE_START] Current phase: ${currentPhase}`);
-      
+
       // If phase is top_down_3d_review (step 1 approved), need to advance first
       if (currentPhase === "top_down_3d_review") {
         console.log("[STYLE_START] Phase is top_down_3d_review, calling continue-pipeline-step first");
@@ -600,13 +671,13 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         }
         console.log("[STYLE_START] Phase advanced to style_pending");
       }
-      
+
       // Now run the actual step
       console.log("[STYLE_START] Invoking run-pipeline-step for Step 2");
       const { data, error } = await supabase.functions.invoke("run-pipeline-step", {
-        body: { 
-          pipeline_id: pipelineId, 
-          step_number: 2, 
+        body: {
+          pipeline_id: pipelineId,
+          step_number: 2,
           whole_apartment_mode: true,
           design_ref_upload_ids: designRefUploadIds,
         },
@@ -633,11 +704,11 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   // Run Step 3: Detect Spaces
   // NOTE: If in style_review, first advance to detect_spaces_pending via continue-pipeline-step
   const runDetectSpaces = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      styledImageUploadId 
-    }: { 
-      pipelineId: string; 
+    mutationFn: async ({
+      pipelineId,
+      styledImageUploadId
+    }: {
+      pipelineId: string;
       styledImageUploadId: string;
     }) => {
       // First check current phase
@@ -646,13 +717,13 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         .select("whole_apartment_phase")
         .eq("id", pipelineId)
         .maybeSingle();
-      
+
       if (metaError) throw metaError;
       if (!pipelineMeta) throw new Error("Pipeline not found");
-      
+
       const currentPhase = pipelineMeta.whole_apartment_phase ?? "upload";
       console.log(`[DETECT_SPACES_START] Current phase: ${currentPhase}`);
-      
+
       // If phase is style_review, need to advance to detect_spaces_pending first
       if (currentPhase === "style_review") {
         console.log("[DETECT_SPACES_START] Phase is style_review, calling continue-pipeline-step first");
@@ -669,33 +740,33 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         }
         console.log("[DETECT_SPACES_START] Phase advanced to detect_spaces_pending");
       }
-      
+
       // Now run the actual detect spaces
       console.log("[DETECT_SPACES_START] Invoking run-detect-spaces");
       const { data, error } = await supabase.functions.invoke("run-detect-spaces", {
         body: { pipeline_id: pipelineId, styled_image_upload_id: styledImageUploadId },
       });
-      
+
       if (error) throw error;
-      
+
       // Handle already_running response gracefully
       if (data?.already_running) {
         console.log("[runDetectSpaces] Already running, waiting for completion...");
         return { ...data, _feedbackType: "already_running" };
       }
-      
+
       // Handle idempotent already_existed case (spaces already detected)
       if (data?.already_existed) {
         console.log("[runDetectSpaces] Spaces already exist, returning existing data");
         return { ...data, _feedbackType: "already_existed" };
       }
-      
+
       return { ...data, _feedbackType: "success" };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["whole-apartment-spaces", pipelineId] });
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
-      
+
       // Return data for component-level toast handling
       return data;
     },
@@ -711,15 +782,15 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
       const { data, error } = await supabase.functions.invoke("retry-pipeline-step", {
         body: { pipeline_id: pipelineId, step_number: 3 },
       });
-      
+
       if (error) throw error;
-      
+
       // Handle already_running response
       if (data?.already_running) {
         console.log("[retryDetectSpaces] Step 3 is actively running");
         return data;
       }
-      
+
       return data;
     },
     onSuccess: () => {
@@ -734,18 +805,18 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
 
   // Run Render for a Space (A or B)
   const runSpaceRender = useMutation({
-    mutationFn: async ({ 
-      renderId, 
+    mutationFn: async ({
+      renderId,
       styledImageUploadId,
       customPrompt,
-    }: { 
-      renderId: string; 
+    }: {
+      renderId: string;
       styledImageUploadId: string;
       customPrompt?: string;
     }) => {
       const { data, error } = await supabase.functions.invoke("run-space-render", {
-        body: { 
-          render_id: renderId, 
+        body: {
+          render_id: renderId,
           styled_image_upload_id: styledImageUploadId,
           custom_prompt: customPrompt,
         },
@@ -760,11 +831,11 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
 
   // Run Panorama for a Space (A or B)
   const runSpacePanorama = useMutation({
-    mutationFn: async ({ 
-      panoramaId, 
+    mutationFn: async ({
+      panoramaId,
       sourceRenderId,
-    }: { 
-      panoramaId: string; 
+    }: {
+      panoramaId: string;
       sourceRenderId: string;
     }) => {
       const { data, error } = await supabase.functions.invoke("run-space-panorama", {
@@ -780,20 +851,20 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
 
   // Run Final 360 Merge for a Space
   const runMerge360 = useMutation({
-    mutationFn: async ({ 
-      final360Id, 
+    mutationFn: async ({
+      final360Id,
       panoramaAId,
       panoramaBId,
       mergeInstructions,
-    }: { 
-      final360Id: string; 
+    }: {
+      final360Id: string;
       panoramaAId: string;
       panoramaBId: string;
       mergeInstructions?: string;
     }) => {
       const { data, error } = await supabase.functions.invoke("run-merge-360", {
-        body: { 
-          final360_id: final360Id, 
+        body: {
+          final360_id: final360Id,
           panorama_a_id: panoramaAId,
           panorama_b_id: panoramaBId,
           merge_instructions: mergeInstructions,
@@ -814,8 +885,8 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     mutationFn: async ({ renderId }: { renderId: string }) => {
       const { error } = await supabase
         .from("floorplan_space_renders")
-        .update({ 
-          locked_approved: true, 
+        .update({
+          locked_approved: true,
           status: "approved",
           qa_status: "approved",
         })
@@ -863,7 +934,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
       // First reset the render status
       await supabase
         .from("floorplan_space_renders")
-        .update({ 
+        .update({
           status: "pending",
           qa_status: "pending",
           output_upload_id: null,
@@ -887,8 +958,8 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     mutationFn: async ({ panoramaId }: { panoramaId: string }) => {
       const { error } = await supabase
         .from("floorplan_space_panoramas")
-        .update({ 
-          locked_approved: true, 
+        .update({
+          locked_approved: true,
           status: "approved",
           qa_status: "approved",
         })
@@ -936,7 +1007,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
       // Reset status
       await supabase
         .from("floorplan_space_panoramas")
-        .update({ 
+        .update({
           status: "pending",
           qa_status: "pending",
           output_upload_id: null,
@@ -960,8 +1031,8 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     mutationFn: async ({ final360Id }: { final360Id: string }) => {
       const { error } = await supabase
         .from("floorplan_space_final360")
-        .update({ 
-          locked_approved: true, 
+        .update({
+          locked_approved: true,
           status: "approved",
           qa_status: "approved",
         })
@@ -1011,7 +1082,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
       // Reset status
       await supabase
         .from("floorplan_space_final360")
-        .update({ 
+        .update({
           status: "pending",
           qa_status: "pending",
           output_upload_id: null,
@@ -1020,8 +1091,8 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
 
       // Trigger regeneration
       const { data, error } = await supabase.functions.invoke("run-merge-360", {
-        body: { 
-          final360_id: final360Id, 
+        body: {
+          final360_id: final360Id,
           panorama_a_id: final360.panorama_a_id,
           panorama_b_id: final360.panorama_b_id,
         },
@@ -1038,18 +1109,18 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
 
   // Advance pipeline to the next step (orchestrator call)
   const advancePipeline = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      fromStep, 
+    mutationFn: async ({
+      pipelineId,
+      fromStep,
       styledImageUploadId,
-    }: { 
-      pipelineId: string; 
+    }: {
+      pipelineId: string;
       fromStep: number;
       styledImageUploadId?: string;
     }) => {
       const { data, error } = await supabase.functions.invoke("run-advance-pipeline", {
-        body: { 
-          pipeline_id: pipelineId, 
+        body: {
+          pipeline_id: pipelineId,
           from_step: fromStep,
           styled_image_upload_id: styledImageUploadId,
         },
@@ -1065,11 +1136,11 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
 
   // Start batch renders for all active spaces
   const runBatchRenders = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
+    mutationFn: async ({
+      pipelineId,
       styledImageUploadId,
-    }: { 
-      pipelineId: string; 
+    }: {
+      pipelineId: string;
       styledImageUploadId: string;
     }) => {
       const { data, error } = await supabase.functions.invoke("run-batch-space-renders", {
@@ -1102,15 +1173,15 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   // Start batch merges for all spaces with approved panoramas
   // Step 7 Quality UI Gate: merge_quality parameter is passed from the pre-run settings
   const runBatchMerges = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      mergeQuality 
-    }: { 
-      pipelineId: string; 
+    mutationFn: async ({
+      pipelineId,
+      mergeQuality
+    }: {
+      pipelineId: string;
       mergeQuality?: "2K" | "4K";
     }) => {
       const { data, error } = await supabase.functions.invoke("run-batch-space-merges", {
-        body: { 
+        body: {
           pipeline_id: pipelineId,
           merge_quality: mergeQuality,
         },
@@ -1301,11 +1372,11 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   // SPACE EXCLUSION: Exclude/delete a space from generation
   // ═══════════════════════════════════════════════════════════════════════════
   const excludeSpace = useMutation({
-    mutationFn: async ({ 
-      spaceId, 
-      reason = "Manually excluded by user" 
-    }: { 
-      spaceId: string; 
+    mutationFn: async ({
+      spaceId,
+      reason = "Manually excluded by user"
+    }: {
+      spaceId: string;
       reason?: string;
     }) => {
       // 1. Mark space as excluded
@@ -1319,7 +1390,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
           status: "excluded",
         })
         .eq("id", spaceId);
-      
+
       if (spaceError) throw spaceError;
 
       // 2. Cancel/skip any pending renders for this space
@@ -1328,7 +1399,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         .update({ status: "skipped" })
         .eq("space_id", spaceId)
         .in("status", ["pending", "planned"]);
-      
+
       if (renderError) console.warn("Failed to skip renders:", renderError);
 
       // 3. Cancel/skip any pending panoramas for this space
@@ -1337,7 +1408,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         .update({ status: "skipped" })
         .eq("space_id", spaceId)
         .in("status", ["pending", "planned"]);
-      
+
       if (panoError) console.warn("Failed to skip panoramas:", panoError);
 
       // 4. Cancel/skip any pending final360 for this space
@@ -1346,7 +1417,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         .update({ status: "skipped" })
         .eq("space_id", spaceId)
         .in("status", ["pending", "planned"]);
-      
+
       if (final360Error) console.warn("Failed to skip final360:", final360Error);
 
       return { success: true };
@@ -1369,7 +1440,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
           status: "pending",
         })
         .eq("id", spaceId);
-      
+
       if (error) throw error;
       return { success: true };
     },
@@ -1381,7 +1452,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   // ═══════════════════════════════════════════════════════════════════════════
   // PER-SPACE RENDER CONTROL
   // ═══════════════════════════════════════════════════════════════════════════
-  
+
   // Run renders for a SINGLE space only (not batch)
   const runSingleSpaceRenders = useMutation({
     mutationFn: async ({
@@ -1398,7 +1469,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
       // DEBUG: Log start
       console.log("[runSingleSpaceRenders] space_render_start_click", { pipelineId, spaceId, styledImageUploadId, referenceImageIds });
       console.log("[runSingleSpaceRenders] space_render_api_called: run-single-space-renders");
-      
+
       const { data, error } = await supabase.functions.invoke("run-single-space-renders", {
         body: {
           pipeline_id: pipelineId,
@@ -1407,18 +1478,18 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
           reference_image_ids: referenceImageIds,
         },
       });
-      
+
       // DEBUG: Log response
       console.log("[runSingleSpaceRenders] space_render_api_response", { data, error });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      
+
       // Check if early exit occurred
       if (data?.already_complete) {
         console.log("[runSingleSpaceRenders] EARLY EXIT detected - no renders ran", data.debug);
       }
-      
+
       return data;
     },
     onSuccess: (data) => {
@@ -1498,9 +1569,9 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   const rejectAfterRetryExhaustion = useMutation({
     mutationFn: async ({ pipelineId, stepNumber }: { pipelineId: string; stepNumber: number }) => {
       if (!user) throw new Error("Not authenticated");
-      
+
       console.log(`[REJECT_STOP_PIPELINE] Rejecting step ${stepNumber} for pipeline ${pipelineId}`);
-      
+
       const { error } = await supabase
         .from("floorplan_pipelines")
         .update({
@@ -1511,12 +1582,12 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
         })
         .eq("id", pipelineId)
         .eq("owner_id", user.id);
-      
+
       if (error) {
         console.error(`[REJECT_STOP_PIPELINE] Failed:`, error);
         throw error;
       }
-      
+
       console.log(`[REJECT_STOP_PIPELINE] Successfully stopped pipeline at step ${stepNumber}`);
       return { success: true, stepNumber };
     },
@@ -1532,19 +1603,19 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   // 3. Resets pipeline state to pending
   // 4. Optionally auto-starts the step (only for steps 1-3)
   const restartStep = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      stepNumber, 
-      autoStart = false 
-    }: { 
-      pipelineId: string; 
+    mutationFn: async ({
+      pipelineId,
+      stepNumber,
+      autoStart = false
+    }: {
+      pipelineId: string;
       stepNumber: number;
       autoStart?: boolean;
     }) => {
       if (!user) throw new Error("Not authenticated");
-      
+
       console.log(`[RESTART_STEP] Calling restart-pipeline-step edge function for step ${stepNumber}, autoStart=${autoStart}`);
-      
+
       const { data, error } = await supabase.functions.invoke("restart-pipeline-step", {
         body: {
           pipeline_id: pipelineId,
@@ -1552,21 +1623,21 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
           auto_start: autoStart,
         },
       });
-      
+
       if (error) {
         console.error(`[RESTART_STEP] Edge function error:`, error);
         throw new Error(error.message || "Failed to restart step");
       }
-      
+
       if (data?.error) {
         console.error(`[RESTART_STEP] Backend error:`, data.error);
         throw new Error(data.error);
       }
-      
+
       console.log(`[RESTART_STEP] Success:`, data);
-      return { 
-        success: true, 
-        stepNumber, 
+      return {
+        success: true,
+        stepNumber,
         deletedUploads: data?.deleted_uploads || 0,
         resetCounter: data?.reset_counter,
         autoStarted: data?.auto_started || false,
@@ -1591,41 +1662,41 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
   // 2. Moves the pipeline pointer back to the previous step
   // 3. Leaves the previous step in its completed/approved state
   const rollbackToPreviousStep = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      currentStepNumber 
-    }: { 
-      pipelineId: string; 
+    mutationFn: async ({
+      pipelineId,
+      currentStepNumber
+    }: {
+      pipelineId: string;
       currentStepNumber: number;
     }) => {
       if (!user) throw new Error("Not authenticated");
-      
+
       if (currentStepNumber < 1) {
         throw new Error("Cannot rollback from Step 0");
       }
-      
+
       console.log(`[ROLLBACK_STEP] Calling rollback-to-previous-step for step ${currentStepNumber}`);
-      
+
       const { data, error } = await supabase.functions.invoke("rollback-to-previous-step", {
         body: {
           pipeline_id: pipelineId,
           current_step_number: currentStepNumber,
         },
       });
-      
+
       if (error) {
         console.error(`[ROLLBACK_STEP] Edge function error:`, error);
         throw new Error(error.message || "Failed to rollback step");
       }
-      
+
       if (data?.error) {
         console.error(`[ROLLBACK_STEP] Backend error:`, data.error);
         throw new Error(data.error);
       }
-      
+
       console.log(`[ROLLBACK_STEP] Success:`, data);
-      return { 
-        success: true, 
+      return {
+        success: true,
         fromStep: data?.from_step || currentStepNumber,
         toStep: data?.to_step || currentStepNumber - 1,
         deletedUploads: data?.deleted_uploads || 0,
@@ -1649,12 +1720,12 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
 
   // Toggle pipeline enabled state (pause/resume)
   const togglePipelineEnabled = useMutation({
-    mutationFn: async ({ 
-      pipelineId, 
-      enabled, 
-      pauseReason 
-    }: { 
-      pipelineId: string; 
+    mutationFn: async ({
+      pipelineId,
+      enabled,
+      pauseReason
+    }: {
+      pipelineId: string;
       enabled: boolean;
       pauseReason?: string;
     }) => {

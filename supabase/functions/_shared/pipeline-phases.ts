@@ -12,49 +12,71 @@
 export const WHOLE_APARTMENT_PHASES = [
   // Initial states
   "upload",
-  
-  // Space Analysis (Step 0)
+
+  // Step 0.1: Design Reference Scan (OPTIONAL)
+  "design_reference_pending",
+  "design_reference_running",
+  "design_reference_complete",
+  "design_reference_failed",
+
+  // Step 0.2: Space Scan (REQUIRED)
+  "space_scan_pending",
+  "space_scan_running",
+  "space_scan_complete",
+  "space_scan_review",
+  "space_scan_failed",
+
+  // Legacy Step 0 phases (for migration compatibility)
   "space_analysis_pending",
-  "space_analysis_running", 
+  "space_analysis_running",
   "space_analysis_complete",
   "space_analysis_review",
   "space_analysis_failed",
-  
+
   // Top-Down 3D (Step 1)
   "top_down_3d_pending",
   "top_down_3d_running",
   "top_down_3d_review",
   "top_down_3d_approved",
-  
+
   // Style (Step 2)
   "style_pending",
   "style_running",
   "style_review",
   "style_approved",
-  
-  // Space Detection (Step 3)
+
+  // Space Detection (Step 3 - legacy internal step, mapped to spec 0.2)
   "detect_spaces_pending",
   "detecting_spaces",
   "spaces_detected",
   "spaces_detected_waiting_approval",
-  
-  // Renders (Step 4)
+
+  // Step 3 (spec): Camera Intent (Templates A-H)
+  "camera_intent_pending",
+  "camera_intent_confirmed",
+
+  // Legacy camera planning phases (for migration compatibility)
+  "camera_plan_pending",
+  "camera_plan_in_progress",
+  "camera_plan_confirmed",
+
+  // Renders (Step 4 internal, spec Steps 4 & 5)
   "renders_pending",
   "renders_in_progress",
   "renders_review",
   "renders_approved",
-  
-  // Panoramas (Step 5)
+
+  // Panoramas (Step 5 internal, spec Step 8 - EXTERNAL)
   "panoramas_pending",
-  "panoramas_in_progress", 
+  "panoramas_in_progress",
   "panoramas_review",
   "panoramas_approved",
-  
-  // Merge (Step 6)
+
+  // Merge (Step 6 internal, spec Step 6 - FUTURE)
   "merging_pending",
   "merging_in_progress",
   "merging_review",
-  
+
   // Terminal states
   "completed",
   "failed"
@@ -158,14 +180,14 @@ export function isValidStatus(status: string): status is PipelineStatus {
 
 export function getPhaseForStep(step: number, isReview: boolean = false): WholeApartmentPhase {
   const phaseMap: Record<number, { pending: WholeApartmentPhase; review: WholeApartmentPhase }> = {
-    0: { pending: "space_analysis_pending", review: "space_analysis_review" },
+    0: { pending: "space_scan_pending", review: "space_scan_review" }, // Step 0.2 (primary)
     1: { pending: "top_down_3d_pending", review: "top_down_3d_review" },
     2: { pending: "style_pending", review: "style_review" },
-    3: { pending: "detecting_spaces", review: "spaces_detected" },
+    3: { pending: "camera_intent_pending", review: "camera_intent_confirmed" }, // Step 3 (spec-aligned)
     4: { pending: "renders_pending", review: "renders_review" },
     5: { pending: "panoramas_pending", review: "panoramas_review" },
   };
-  
+
   const phases = phaseMap[step];
   if (!phases) return "failed";
   return isReview ? phases.review : phases.pending;

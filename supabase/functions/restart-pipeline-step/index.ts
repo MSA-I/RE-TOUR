@@ -20,10 +20,10 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
  * Step 6: Panoramas
  * Step 7: Merge/Final 360
  */
-const PHASE_MAP: Record<number, { 
-  pending: string; 
+const PHASE_MAP: Record<number, {
+  pending: string;
   running?: string;
-  status_pending: string; 
+  status_pending: string;
   status_running?: string;
 }> = {
   0: { pending: "space_analysis_pending", running: "space_analysis_running", status_pending: "step0_pending", status_running: "step0_running" },
@@ -107,12 +107,12 @@ serve(async (req) => {
     for (let s = step_number; s <= 7; s++) {
       const stepKey = `step${s}`;
       const stepData = stepOutputs[stepKey];
-      
+
       // Single output format
       if (stepData?.output_upload_id && stepData.output_upload_id !== pipeline.floor_plan_upload_id) {
         uploadIdsToDelete.add(stepData.output_upload_id);
       }
-      
+
       // Multiple outputs format
       if (stepData?.outputs && Array.isArray(stepData.outputs)) {
         for (const output of stepData.outputs) {
@@ -133,7 +133,7 @@ serve(async (req) => {
     for (let s = step_number; s <= 7; s++) {
       const stateKey = `step_${s}`;
       const stateData = stepRetryState[stateKey];
-      
+
       if (stateData?.attempts && Array.isArray(stateData.attempts)) {
         for (const attempt of stateData.attempts) {
           if (attempt?.output_upload_ids && Array.isArray(attempt.output_upload_ids)) {
@@ -213,7 +213,7 @@ serve(async (req) => {
         .from("floorplan_pipeline_spaces")
         .delete()
         .eq("pipeline_id", pipeline_id);
-      
+
       // Also delete camera markers for step <= 4
       await supabaseAdmin
         .from("pipeline_camera_markers")
@@ -226,7 +226,7 @@ serve(async (req) => {
         .delete()
         .eq("pipeline_id", pipeline_id);
     }
-    
+
     if (step_number <= 5) {
       // Delete renders
       await supabaseAdmin
@@ -249,7 +249,8 @@ serve(async (req) => {
         .eq("pipeline_id", pipeline_id);
     }
 
-    // 8. Delete actual files from storage and uploads table
+    // DISABLED: Pipeline-generated uploads are now PRESERVED for Creations
+    /*
     const uploadIdList = Array.from(uploadIdsToDelete);
     let deletedCount = 0;
     
@@ -285,8 +286,9 @@ serve(async (req) => {
         console.warn(`[RESTART_STEP] Error deleting upload ${uploadId}:`, err);
       }
     }
-
-    console.log(`[RESTART_STEP] Deleted ${deletedCount}/${uploadIdList.length} uploads from storage`);
+    */
+    const deletedCount = 0;
+    console.log(`[RESTART_STEP] Preserving ${uploadIdsToDelete.size} uploads for Creations`);
 
     // 9. Clear step_outputs and step_retry_state for steps >= step_number
     const cleanedStepOutputs = { ...stepOutputs };
@@ -352,7 +354,7 @@ serve(async (req) => {
     let runResult = null;
     if (canAutoStart && step_number >= 1 && step_number <= 3) {
       console.log(`[RESTART_STEP] Auto-starting step ${step_number}`);
-      
+
       const { data: runData, error: runError } = await supabaseAdmin.functions.invoke("run-pipeline-step", {
         body: {
           pipeline_id,
@@ -374,7 +376,7 @@ serve(async (req) => {
             status: targetPhase.status_pending,
           })
           .eq("id", pipeline_id);
-        
+
         runResult = { error: runError.message };
       } else {
         runResult = { success: true, data: runData };
