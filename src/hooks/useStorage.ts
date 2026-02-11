@@ -210,10 +210,14 @@ export function useStorage() {
   const uploadFile = useCallback(async (bucket: string, path: string, file: File) => {
     const { signedUrl, token } = await getSignedUploadUrl(bucket, path, file.type);
 
-    const response = await fetch(signedUrl, {
+    // Add token to the signed URL as required by Supabase Storage
+    const uploadUrl = `${signedUrl}${signedUrl.includes('?') ? '&' : '?'}token=${token}`;
+
+    const response = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
-        "Content-Type": file.type,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
       },
       body: file,
     });
