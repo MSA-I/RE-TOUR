@@ -65,7 +65,9 @@
       "Bash(npm run test:run:*)",
       "Bash(git mv:*)",
       "Bash(supabase test:*)",
-      "Bash(start:*)"
+      "Bash(start:*)",
+      "Bash(git diff-tree --no-commit-id --name-status -r dd94394)",
+      "Bash(git checkout e364f8e -- SETUP_GEMINI_CAMERA_INTENTS.md REGENERATE_CAMERA_INTENTS.sql)"
     ]
   },
   "enableAllProjectMcpServers": true,
