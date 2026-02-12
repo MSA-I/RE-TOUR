@@ -1873,11 +1873,13 @@ function GlobalStepsSection({
                       }))}
                       onConfirm={async () => {
                         try {
-                          // Transition phase to camera_intent_confirmed
+                          // Transition phase to camera_intent_confirmed AND step to 4
+                          // Both must be updated together to satisfy phase-step constraint
                           const { error } = await supabase
                             .from('floorplan_pipelines')
                             .update({
                               whole_apartment_phase: 'camera_intent_confirmed',
+                              current_step: 4,
                               updated_at: new Date().toISOString(),
                             })
                             .eq('id', pipeline.id);
