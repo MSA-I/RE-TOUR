@@ -63,10 +63,11 @@ export function CameraIntentSelectorPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-  // Fetch camera intent suggestions from database
+  // Fetch camera intent suggestions from database (auto-generate if empty)
   useEffect(() => {
-    async function fetchSuggestions() {
+    async function fetchOrGenerateSuggestions() {
       try {
+        // First, try to fetch existing suggestions
         const { data, error } = await supabase
           .from('camera_intents')
           .select('*')
@@ -76,7 +77,38 @@ export function CameraIntentSelectorPanel({
 
         if (error) throw error;
 
-        setSuggestions(data || []);
+        // If no suggestions exist, generate them automatically
+        if (!data || data.length === 0) {
+          console.log('[CameraIntentSelectorPanel] No suggestions found - generating...');
+
+          const { error: generateError } = await supabase.functions.invoke('save-camera-intents', {
+            body: { pipeline_id: pipelineId }
+          });
+
+          if (generateError) {
+            console.error('[CameraIntentSelectorPanel] Generation failed:', generateError);
+            throw generateError;
+          }
+
+          // Fetch again after generation
+          const { data: newData, error: refetchError } = await supabase
+            .from('camera_intents')
+            .select('*')
+            .eq('pipeline_id', pipelineId)
+            .order('space_id')
+            .order('suggestion_index');
+
+          if (refetchError) throw refetchError;
+
+          setSuggestions(newData || []);
+
+          toast({
+            title: 'Suggestions Generated',
+            description: `${newData?.length || 0} camera intent suggestions created`,
+          });
+        } else {
+          setSuggestions(data);
+        }
       } catch (error) {
         console.error('[CameraIntentSelectorPanel] Error fetching suggestions:', error);
         toast({
@@ -90,7 +122,7 @@ export function CameraIntentSelectorPanel({
     }
 
     if (pipelineId && spaces.length > 0) {
-      fetchSuggestions();
+      fetchOrGenerateSuggestions();
     }
   }, [pipelineId, spaces, toast]);
 

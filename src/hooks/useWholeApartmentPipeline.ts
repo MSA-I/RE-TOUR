@@ -264,14 +264,14 @@ export const STEP_BADGES: Record<number, string | null> = {
 };
 
 export const LOCKED_PIPELINE_DISPLAY = [
-  { stepNum: "0.1", label: "Design Ref", internalStep: 0, futurePhase: false, optional: true },
-  { stepNum: "0.2", label: "Space Scan", internalStep: 3, futurePhase: false },
+  { stepNum: "0", label: "Design Ref", internalStep: 0, futurePhase: false, optional: true },
   { stepNum: "1", label: "2D Plan", internalStep: 1, futurePhase: false },
   { stepNum: "2", label: "Style", internalStep: 2, futurePhase: false },
-  { stepNum: "3", label: "Camera Intent", internalStep: 4, futurePhase: false },
-  { stepNum: "4", label: "Prompts+Gen", internalStep: 5, futurePhase: false },
-  { stepNum: "5", label: "Outputs+QA", internalStep: 6, futurePhase: false },
-  { stepNum: "6-9", label: "Future", internalStep: 7, futurePhase: true },
+  { stepNum: "3", label: "Space Scan", internalStep: 3, futurePhase: false },
+  { stepNum: "4", label: "Camera Intent", internalStep: 4, futurePhase: false },
+  { stepNum: "5", label: "Prompts+Gen", internalStep: 5, futurePhase: false },
+  { stepNum: "6", label: "Outputs+QA", internalStep: 6, futurePhase: false },
+  { stepNum: "7-9", label: "Future", internalStep: 7, futurePhase: true },
   { stepNum: "10", label: "Approval", internalStep: 8, futurePhase: false },
 ];
 
@@ -345,6 +345,10 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     const activeSpaces = spacesQuery.data.filter(
       s => !s.is_excluded && s.include_in_generation !== false
     );
+
+    // If no active spaces, return 0 to avoid division by zero
+    if (activeSpaces.length === 0) return 0;
+
     let totalAssets = activeSpaces.length * 5; // 2 renders + 2 panoramas + 1 final360 per space
     let completedAssets = 0;
 

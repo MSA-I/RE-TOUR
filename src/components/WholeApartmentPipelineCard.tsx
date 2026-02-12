@@ -38,6 +38,7 @@ import { StepControlsFooter } from "@/components/whole-apartment/StepControlsFoo
 import { SpaceGraphSummary } from "@/components/whole-apartment/SpaceGraphSummary";
 import { PipelineDebugPanel } from "@/components/whole-apartment/PipelineDebugPanel";
 import { Step7PreRunSettings } from "@/components/whole-apartment/Step7PreRunSettings";
+import { supabase } from "@/integrations/supabase/client";
 import { useCameraMarkers } from "@/hooks/useCameraMarkers";
 import { useSpatialMap } from "@/hooks/useSpatialMap";
 import { useAvailableReferenceImages } from "@/hooks/useAvailableReferenceImages";
@@ -45,7 +46,6 @@ import { FloorPlanPipelineTerminal } from "@/components/FloorPlanPipelineTermina
 import { useStorage } from "@/hooks/useStorage";
 import { useToast } from "@/hooks/use-toast";
 import { useManualQA } from "@/contexts/ManualQAContext";
-import { supabase } from "@/integrations/supabase/client";
 import {
   Play,
   Loader2,
@@ -712,6 +712,7 @@ function PipelineSettingsDrawer({
 function GlobalStepsSection({
   pipeline,
   imagePreviews,
+  spaces,
   onRunSpaceAnalysis,
   onRunTopDown,
   onRunStyle,
@@ -738,6 +739,7 @@ function GlobalStepsSection({
 }: {
   pipeline: FloorplanPipeline;
   imagePreviews: Record<string, string>;
+  spaces: any[];
   onRunSpaceAnalysis: () => void;
   onRunTopDown: () => void;
   onRunStyle: () => void;
@@ -1616,7 +1618,7 @@ function GlobalStepsSection({
                 <div>
                   <p className="text-sm font-medium">Space Scan</p>
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground">Step 0.2: Detect spaces</p>
+                    <p className="text-xs text-muted-foreground">Step 3: Detect spaces</p>
                     {/* Quality indicator badge */}
                     <Badge variant="outline" className="text-xs px-1.5 py-0">
                       <Lock className="w-2.5 h-2.5 mr-0.5" />
@@ -1704,8 +1706,8 @@ function GlobalStepsSection({
                   </Button>
                 )}
 
-                {/* PENDING STATE: Normal Generate button - HIDDEN (automatic in Step 0.2) */}
-                {false && step3Pending && !step3Running && !step3Failed && (
+                {/* PENDING STATE: Normal Generate button */}
+                {step3Pending && !step3Running && !step3Failed && (
                   <Button
                     size="sm"
                     onClick={() => {
@@ -1781,10 +1783,10 @@ function GlobalStepsSection({
         */}
         {step3Done && (() => {
           // COMMIT LOGIC: Camera Intent locks only after renders have started
-          // camera_plan_confirmed = approved but still editable
+          // camera_intent_confirmed = approved but still editable
           // renders_pending/renders_in_progress/renders_review = locked (committed)
           const isCameraCommitted = PHASE_STEP_MAP[phase] >= 5;
-          const isCameraApproved = phase === "camera_plan_confirmed";
+          const isCameraApproved = phase === "camera_intent_confirmed" || phase === "camera_plan_confirmed"; // Support both for migration
 
           return (
             <div className="space-y-3">
@@ -1839,13 +1841,7 @@ function GlobalStepsSection({
                         {isCameraApproved ? "Edit Camera Intent" : "Define Camera Intent"}
                       </Button>
                     )}
-                    {/* Draft badge - shown when not yet approved */}
-                    {!isCameraApproved && !isCameraCommitted && (
-                      <Badge variant="outline" className="border-amber-500/50 text-amber-600">
-                        <Clock className="w-3 h-3 mr-1" />
-                        Draft
-                      </Badge>
-                    )}
+                    {/* Approved badge - shown when confirmed but not yet locked */}
                     {isCameraApproved && !isCameraCommitted && (
                       <Badge className="bg-green-500/20 text-green-600">
                         <Check className="w-3 h-3 mr-1" />
@@ -1874,10 +1870,37 @@ function GlobalStepsSection({
                         name: space.name,
                         space_type: space.space_type,
                       }))}
-                      onConfirm={() => {
-                        // Close dialog and refresh pipeline data after selections saved
-                        setCameraPlanningOpen(false);
-                        queryClient.invalidateQueries(['floorplan-pipeline', pipeline.id]);
+                      onConfirm={async () => {
+                        try {
+                          // Transition phase to camera_intent_confirmed
+                          const { error } = await supabase
+                            .from('floorplan_pipelines')
+                            .update({
+                              whole_apartment_phase: 'camera_intent_confirmed',
+                              camera_intent_confirmed_at: new Date().toISOString(),
+                              updated_at: new Date().toISOString(),
+                            })
+                            .eq('id', pipeline.id);
+
+                          if (error) throw error;
+
+                          toast({
+                            title: 'Camera Intent Confirmed',
+                            description: 'Camera intents saved successfully. Ready for Step 5.',
+                          });
+
+                          // Close dialog and refresh pipeline data after selections saved
+                          setCameraPlanningOpen(false);
+                          queryClient.invalidateQueries(['floorplan-pipeline', pipeline.id]);
+                          queryClient.invalidateQueries(['floorplan-pipelines', pipeline.project_id]);
+                        } catch (error) {
+                          console.error('[Camera Intent Confirm] Error:', error);
+                          toast({
+                            title: 'Confirmation Failed',
+                            description: error instanceof Error ? error.message : 'Failed to confirm camera intents',
+                            variant: 'destructive',
+                          });
+                        }
                       }}
                       isConfirming={false}
                       disabled={isRunning || approvalLocked}
@@ -2483,8 +2506,8 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   const handleApproveGlobalStep = useCallback(async (step: number) => {
     // Persist manual approval + unlock next step.
     const nextPhaseMap: Record<number, string> = {
-      1: "style_pending",
-      2: "camera_intent_pending", // Go directly to Camera Intent (Step 3 in spec)
+      1: "style_pending",           // Step 1 → Step 2 (Style)
+      2: "detect_spaces_pending",   // Step 2 → Step 3 (Detect Spaces)
     };
     const nextPhase = nextPhaseMap[step];
 
@@ -2875,7 +2898,8 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
     );
   }, [restartPipeline, pipeline.id, toast, onUpdatePipeline]);
 
-  const showSpacesSection = currentStep >= 3 || spaces.length > 0;
+  // Spaces section (with render/panorama/merge progress) only shows AFTER Camera Intent is confirmed
+  const showSpacesSection = currentStep >= 5 || (spaces.length > 0 && (phase === "renders_pending" || phase === "renders_in_progress" || phase === "renders_review" || phase.includes("panorama") || phase.includes("merging")));
 
   // Determine if running
   const isRunning = phase.includes("running") || phase === "detecting_spaces" || phase.includes("in_progress");
@@ -3118,6 +3142,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
               <GlobalStepsSection
                 pipeline={pipeline}
                 imagePreviews={imagePreviews}
+                spaces={spaces}
                 onRunSpaceAnalysis={handleRunSpaceAnalysis}
                 onRunTopDown={handleRunTopDown}
                 onRunStyle={handleRunStyle}
