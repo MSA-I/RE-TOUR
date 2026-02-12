@@ -142,15 +142,6 @@ export function CameraIntentSelectorPanel({
     setSuggestions(prev =>
       prev.map(s => (s.id === suggestionId ? { ...s, is_selected: selected } : s))
     );
-
-    // Clear validation error for this space when user makes a selection
-    const suggestion = suggestions.find(s => s.id === suggestionId);
-    if (suggestion && selected) {
-      setValidationErrors(prev => {
-        const { [suggestion.space_id]: _, ...rest } = prev;
-        return rest;
-      });
-    }
   };
 
   // Validate: at least 1 selection total (user can select for only some spaces)
