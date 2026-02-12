@@ -764,6 +764,7 @@ function GlobalStepsSection({
   isResetPending?: boolean;
   isRollbackPending?: boolean;
 }) {
+  const { toast } = useToast();
   const { getSignedViewUrl } = useStorage();
   const { spatialMap, isLoading: spatialMapLoading, error: spatialMapError, runSpatialDecomposition } = useSpatialMap(pipeline.id);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -1877,7 +1878,6 @@ function GlobalStepsSection({
                             .from('floorplan_pipelines')
                             .update({
                               whole_apartment_phase: 'camera_intent_confirmed',
-                              camera_intent_confirmed_at: new Date().toISOString(),
                               updated_at: new Date().toISOString(),
                             })
                             .eq('id', pipeline.id);
