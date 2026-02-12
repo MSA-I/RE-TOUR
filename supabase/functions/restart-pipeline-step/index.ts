@@ -30,7 +30,7 @@ const PHASE_MAP: Record<number, {
   1: { pending: "top_down_3d_pending", running: "top_down_3d_running", status_pending: "step1_pending", status_running: "step1_running" },
   2: { pending: "style_pending", running: "style_running", status_pending: "step2_pending", status_running: "step2_running" },
   3: { pending: "detect_spaces_pending", running: "detecting_spaces", status_pending: "step3_pending", status_running: "step3_running" },
-  4: { pending: "camera_plan_pending", status_pending: "step4_pending", status_running: "step4_pending" }, // Camera planning has no "running" state
+  4: { pending: "camera_intent_pending", status_pending: "step4_pending", status_running: "step4_pending" }, // Camera intent is decision-only (no running state)
   5: { pending: "renders_pending", running: "renders_in_progress", status_pending: "step5_pending", status_running: "step5_running" },
   6: { pending: "panoramas_pending", running: "panoramas_in_progress", status_pending: "step6_pending", status_running: "step6_running" },
   7: { pending: "merging_pending", running: "merging_in_progress", status_pending: "step7_pending", status_running: "step7_running" },

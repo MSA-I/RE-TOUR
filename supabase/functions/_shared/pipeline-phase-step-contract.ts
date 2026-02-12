@@ -27,12 +27,14 @@
  * │   style_pending                  │  2                                   │
  * │   style_running                  │  2                                   │
  * │   style_review                   │  2                                   │
- * │   detect_spaces_pending          │  3  ← NEW (was Step 4)               │
+ * │   detect_spaces_pending          │  3                                   │
  * │   detecting_spaces               │  3                                   │
  * │   spaces_detected                │  3                                   │
- * │   camera_plan_pending            │  4  ← NEW (was Step 3)               │
- * │   camera_plan_confirmed          │  4                                   │
- * │   renders_pending                │  5                                   │
+ * │   camera_intent_pending          │  4  (Decision-only, no renders)      │
+ * │   camera_intent_confirmed        │  4                                   │
+ * │   prompt_templates_pending       │  5  (NEW phase for templates)        │
+ * │   prompt_templates_confirmed     │  5                                   │
+ * │   outputs_pending                │  6  (Renamed from renders)           │
  * │   renders_in_progress            │  5                                   │
  * │   renders_review                 │  5                                   │
  * │   panoramas_pending              │  6                                   │
@@ -102,11 +104,12 @@ export const PHASE_STEP_CONTRACT: Record<string, number> = {
  * Maps from a "review" or "confirmed" phase to the next "pending" phase.
  * 
  * ⚠️  WARNING: Update this when adding new phases  ⚠️
- * 
- * FLOW ORDER (SWAPPED):
+ *
+ * FLOW ORDER:
  * Step 2 (style_review) → Step 3 (detect_spaces_pending)
- * Step 3 (spaces_detected) → Step 4 (camera_plan_pending)
- * Step 4 (camera_plan_confirmed) → Step 5 (renders_pending)
+ * Step 3 (spaces_detected) → Step 4 (camera_intent_pending)
+ * Step 4 (camera_intent_confirmed) → Step 5 (prompt_templates_pending)
+ * Step 5 (prompt_templates_confirmed) → Step 6 (outputs_pending)
  */
 export const LEGAL_PHASE_TRANSITIONS: Record<string, string> = {
   // Step 0 → Step 1

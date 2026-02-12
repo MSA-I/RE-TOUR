@@ -1510,7 +1510,7 @@ serve(async (req) => {
       let hint = "Check frontend routing configuration";
       if (currentPhase.startsWith("space_analysis") || currentPhase === "upload") {
         hint = "This phase should use run-space-analysis";
-      } else if (currentPhase.startsWith("detect_spaces") || currentPhase === "detecting_spaces" || currentPhase === "camera_plan_confirmed") {
+      } else if (currentPhase.startsWith("detect_spaces") || currentPhase === "detecting_spaces") {
         hint = "This phase should use run-detect-spaces";
       } else if (currentPhase.startsWith("renders") || currentPhase.startsWith("panoramas") || currentPhase.startsWith("merging")) {
         hint = "This phase should use run-batch-space-renders, run-batch-space-panoramas, or run-batch-space-merges";
