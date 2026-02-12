@@ -169,18 +169,38 @@ export function CameraIntentSelectorPanel({
     setIsSaving(true);
 
     try {
-      // Update selections in database
-      const updates = suggestions.map(s => ({
-        id: s.id,
-        is_selected: s.is_selected,
-        selected_at: s.is_selected ? new Date().toISOString() : null,
-      }));
+      // Split suggestions into selected and unselected for bulk updates
+      const selectedIds = suggestions.filter(s => s.is_selected).map(s => s.id);
+      const unselectedIds = suggestions.filter(s => !s.is_selected).map(s => s.id);
+      const now = new Date().toISOString();
 
-      const { error } = await supabase
-        .from('camera_intents')
-        .upsert(updates, { onConflict: 'id' });
+      // Update selected suggestions
+      if (selectedIds.length > 0) {
+        const { error: selectError } = await supabase
+          .from('camera_intents')
+          .update({
+            is_selected: true,
+            selected_at: now,
+            updated_at: now,
+          })
+          .in('id', selectedIds);
 
-      if (error) throw error;
+        if (selectError) throw selectError;
+      }
+
+      // Update unselected suggestions
+      if (unselectedIds.length > 0) {
+        const { error: unselectError } = await supabase
+          .from('camera_intents')
+          .update({
+            is_selected: false,
+            selected_at: null,
+            updated_at: now,
+          })
+          .in('id', unselectedIds);
+
+        if (unselectError) throw unselectError;
+      }
 
       toast({
         title: 'Camera Intents Saved',
