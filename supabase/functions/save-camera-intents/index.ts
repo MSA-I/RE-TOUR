@@ -6,6 +6,165 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+interface SpaceAnalysis {
+  space_id: string;
+  inferred_usage: string;
+  confidence: number;
+  detected_items?: Array<{
+    item_type: string;
+    count: number;
+    confidence: number;
+  }>;
+  dimensions_summary?: string;
+}
+
+/**
+ * Generate camera intent suggestions using Gemini AI vision
+ */
+async function generateAISuggestions(
+  styledImageUrl: string,
+  space: any,
+  spaceAnalysis: SpaceAnalysis | null
+): Promise<string[]> {
+  if (!GEMINI_API_KEY) {
+    console.warn("[save-camera-intents] GEMINI_API_KEY not set - using fallback templates");
+    return generateFallbackSuggestions(space);
+  }
+
+  try {
+    // Fetch the image as base64
+    const imageResponse = await fetch(styledImageUrl);
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to fetch image: ${imageResponse.status}`);
+    }
+
+    const imageBuffer = await imageResponse.arrayBuffer();
+    const base64Image = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)));
+
+    // Build context about the space
+    const spaceContext = spaceAnalysis ? `
+Space Analysis:
+- Detected usage: ${spaceAnalysis.inferred_usage}
+- Confidence: ${(spaceAnalysis.confidence * 100).toFixed(0)}%
+- Detected items: ${spaceAnalysis.detected_items?.map(i => `${i.count}x ${i.item_type}`).join(", ") || "None"}
+- Dimensions: ${spaceAnalysis.dimensions_summary || "Not available"}
+` : "No detailed analysis available.";
+
+    const isLarge = ["living_room", "kitchen", "master_bedroom", "dining_room", "open_plan"].includes(space.space_type);
+    const suggestionCount = isLarge ? 4 : 2;
+
+    const prompt = `You are an expert real estate photographer analyzing a floor plan to suggest camera viewpoints for interior photos.
+
+**Space:** ${space.name} (${space.space_type})
+${spaceContext}
+
+**Task:** Generate ${suggestionCount} unique, specific camera intent suggestions for THIS SPECIFIC SPACE based on the styled top-down floor plan image you see.
+
+**Requirements:**
+1. Analyze the actual layout, furniture placement, and architectural features visible in the image
+2. Suggest camera positions and angles that would capture the space's best features
+3. Be specific about what the camera should focus on (e.g., "fireplace feature wall", "window with city view")
+4. Consider human eye-level photography (not top-down)
+5. Each suggestion should be 1-2 sentences describing what to photograph and why
+
+**Format:** Return ONLY ${suggestionCount} suggestions, one per line, starting with a dash. No numbering, no extra text.
+
+Example format:
+- Wide shot from entry doorway capturing the entire room flow and natural light from the bay windows
+- Detail view of the built-in bookshelf and reading nook with architectural details
+${isLarge ? "- Diagonal angle from corner showcasing the open kitchen-living connection and island\n- Close-up of fireplace feature wall highlighting the custom tilework and mantel" : ""}
+
+Generate ${suggestionCount} suggestions NOW:`;
+
+    // Call Gemini API with vision
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: prompt,
+                },
+                {
+                  inline_data: {
+                    mime_type: "image/jpeg",
+                    data: base64Image,
+                  },
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.9,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 1024,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+
+    if (!result.candidates || result.candidates.length === 0) {
+      throw new Error("Gemini returned no candidates");
+    }
+
+    const text = result.candidates[0].content.parts[0].text;
+    const suggestions = text
+      .split("\n")
+      .filter((line: string) => line.trim().startsWith("-"))
+      .map((line: string) => line.trim().substring(1).trim())
+      .slice(0, suggestionCount);
+
+    if (suggestions.length === 0) {
+      console.warn("[save-camera-intents] AI returned no valid suggestions, using fallback");
+      return generateFallbackSuggestions(space);
+    }
+
+    return suggestions;
+  } catch (error) {
+    console.error("[save-camera-intents] AI generation failed:", error);
+    return generateFallbackSuggestions(space);
+  }
+}
+
+/**
+ * Fallback suggestions when AI is unavailable
+ */
+function generateFallbackSuggestions(space: any): string[] {
+  const isLarge = ["living_room", "kitchen", "master_bedroom", "dining_room", "open_plan"].includes(space.space_type);
+
+  if (isLarge) {
+    return [
+      `Wide shot capturing the entire ${space.name} layout and natural light flow`,
+      `Detail view focusing on key architectural features and design elements in ${space.name}`,
+      `Diagonal angle showcasing the spatial connection and room depth`,
+      `Close-up highlighting unique fixtures and material finishes`,
+    ];
+  } else {
+    return [
+      `Wide view capturing the complete ${space.name} from the entry perspective`,
+      `Detail shot highlighting the functional layout and key features`,
+    ];
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -17,11 +176,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, // Use service role for admin tasks
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
 
     const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
     if (authError || !user) {
@@ -33,66 +190,137 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Missing pipeline_id" }), { status: 400, headers: corsHeaders });
     }
 
-    // 1. Fetch detected spaces
+    console.log(`[save-camera-intents] Starting generation for pipeline ${pipeline_id}`);
+
+    // 1. Fetch pipeline to get Step 2 output and space analysis
+    const { data: pipeline, error: pipelineError } = await supabase
+      .from("floorplan_pipelines")
+      .select("step_outputs, floor_plan_upload_id")
+      .eq("id", pipeline_id)
+      .single();
+
+    if (pipelineError || !pipeline) {
+      throw new Error("Pipeline not found");
+    }
+
+    const stepOutputs = (pipeline.step_outputs || {}) as Record<string, any>;
+    const step2Output = stepOutputs.step2 || stepOutputs["2"];
+    const spaceAnalysisOutput = stepOutputs.space_analysis;
+
+    if (!step2Output?.output_upload_id) {
+      throw new Error("Step 2 (Style) must be completed first - no styled image found");
+    }
+
+    // 2. Get signed URL for the styled image
+    const { data: uploadData } = await supabase
+      .from("uploads")
+      .select("bucket, path")
+      .eq("id", step2Output.output_upload_id)
+      .single();
+
+    if (!uploadData) {
+      throw new Error("Step 2 styled image not found in storage");
+    }
+
+    const { data: signedUrlData } = await supabase.storage
+      .from(uploadData.bucket)
+      .createSignedUrl(uploadData.path, 3600); // 1 hour expiry
+
+    if (!signedUrlData?.signedUrl) {
+      throw new Error("Failed to create signed URL for styled image");
+    }
+
+    const styledImageUrl = signedUrlData.signedUrl;
+    console.log(`[save-camera-intents] Using styled image: ${step2Output.output_upload_id}`);
+
+    // 3. Parse space analysis data
+    const spaceAnalysisMap = new Map<string, SpaceAnalysis>();
+    if (spaceAnalysisOutput?.rooms || spaceAnalysisOutput?.zones) {
+      const allAnalyzedSpaces = [
+        ...(spaceAnalysisOutput.rooms || []),
+        ...(spaceAnalysisOutput.zones || []),
+      ];
+
+      for (const analyzed of allAnalyzedSpaces) {
+        if (analyzed.space_id) {
+          spaceAnalysisMap.set(analyzed.space_id, analyzed);
+        }
+      }
+    }
+
+    // 4. Fetch detected spaces
     const { data: spaces, error: spacesError } = await supabase
       .from("floorplan_pipeline_spaces")
       .select("*")
-      .eq("pipeline_id", pipeline_id)
-      .eq("is_excluded", false); // Only generate for included spaces
+      .eq("pipeline_id", pipeline_id);
 
     if (spacesError) throw spacesError;
     if (!spaces || spaces.length === 0) {
-      return new Response(JSON.stringify({ message: "No active spaces found" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(
+        JSON.stringify({ message: "No spaces detected yet - run Step 3 (Detect Spaces) first" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    // 2. Generate Suggestions
+    console.log(`[save-camera-intents] Generating AI suggestions for ${spaces.length} spaces`);
+
+    // 5. Generate AI suggestions for each space
     const intentsToInsert = [];
     const LARGE_SPACE_TYPES = ["living_room", "kitchen", "master_bedroom", "dining_room", "open_plan"];
 
     for (const space of spaces) {
-      const isLarge = LARGE_SPACE_TYPES.includes(space.space_type) || space.name.toLowerCase().includes("living") || space.name.toLowerCase().includes("kitchen");
-      const suggestionCount = isLarge ? 4 : 2;
+      const isLarge = LARGE_SPACE_TYPES.includes(space.space_type);
       const sizeCategory = isLarge ? "large" : "normal";
+      const spaceAnalysis = spaceAnalysisMap.get(space.id) || null;
 
-      // Template logic (Placeholder for actual AI generation or complex template mapping)
-      const templates = isLarge
-        ? ["Wide shot showing flow", "Focus on key feature", "Detail oriented angle", "Alternative perspective led by light"]
-        : ["Standard wide view", "Detail focus"];
+      console.log(`[save-camera-intents] Generating for: ${space.name} (${space.space_type})`);
 
-      for (let i = 0; i < suggestionCount; i++) {
-        const templateText = templates[i] || `View Option ${i + 1}`;
+      // Generate AI suggestions
+      const suggestions = await generateAISuggestions(styledImageUrl, space, spaceAnalysis);
 
+      for (let i = 0; i < suggestions.length; i++) {
         intentsToInsert.push({
           pipeline_id,
           space_id: space.id,
           owner_id: user.id,
-          suggestion_text: `${templateText} for ${space.name}`,
+          suggestion_text: suggestions[i],
           suggestion_index: i,
           space_size_category: sizeCategory,
-          is_selected: i === 0, // Default select the first one? Or none? Plan says "Transition... once user selects". Let's default false.
+          is_selected: false, // User must explicitly select
         });
       }
     }
 
-    // 3. Clear existing intents for this pipeline to avoid duplicates if re-run
+    // 6. Clear existing intents and insert new ones
     await supabase.from("camera_intents").delete().eq("pipeline_id", pipeline_id);
 
-    // 4. Insert new intents
     const { error: insertError } = await supabase
       .from("camera_intents")
       .insert(intentsToInsert);
 
     if (insertError) throw insertError;
 
-    return new Response(JSON.stringify({ success: true, count: intentsToInsert.length }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.log(`[save-camera-intents] Successfully generated ${intentsToInsert.length} AI-powered suggestions`);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        count: intentsToInsert.length,
+        ai_powered: !!GEMINI_API_KEY,
+        ai_model: "gemini-1.5-flash",
+        spaces_processed: spaces.length,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
 
   } catch (error) {
-    console.error("Error in save-camera-intents:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[save-camera-intents] Error:", error);
+    return new Response(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+      }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   }
 });
