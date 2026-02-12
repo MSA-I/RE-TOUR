@@ -55,30 +55,44 @@ Space Analysis:
 ` : "No detailed analysis available.";
 
     const isLarge = ["living_room", "kitchen", "master_bedroom", "dining_room", "open_plan"].includes(space.space_type);
-    const suggestionCount = isLarge ? 4 : 2;
+
+    // Large spaces: 4-8 suggestions, Normal spaces: 2-4 suggestions
+    const minSuggestions = isLarge ? 4 : 2;
+    const maxSuggestions = isLarge ? 8 : 4;
+    const suggestionCount = isLarge ? 6 : 3; // Target count for prompt
 
     const prompt = `You are an expert real estate photographer analyzing a floor plan to suggest camera viewpoints for interior photos.
 
 **Space:** ${space.name} (${space.space_type})
 ${spaceContext}
 
-**Task:** Generate ${suggestionCount} unique, specific camera intent suggestions for THIS SPECIFIC SPACE based on the styled top-down floor plan image you see.
+**Task:** Generate ${minSuggestions}-${maxSuggestions} unique, specific camera intent suggestions for THIS SPECIFIC SPACE based on the styled top-down floor plan image you see.
+
+**CRITICAL REQUIREMENT - Comprehensive Spatial Coverage:**
+Your suggestions MUST collectively cover the entire space from multiple viewing angles. Think strategically about camera placement to ensure:
+- Every wall and corner of the room can be captured
+- Different perspectives are provided (entry view, opposite corner, side angles, etc.)
+- The full spatial layout is documented through the combination of all suggested viewpoints
+- No significant area of the space is left uncaptured when all suggestions are combined
 
 **Requirements:**
 1. Analyze the actual layout, furniture placement, and architectural features visible in the image
-2. Suggest camera positions and angles that would capture the space's best features
-3. Be specific about what the camera should focus on (e.g., "fireplace feature wall", "window with city view")
-4. Consider human eye-level photography (not top-down)
-5. Each suggestion should be 1-2 sentences describing what to photograph and why
+2. Position camera suggestions at DIFFERENT locations around the perimeter of the space
+3. Ensure suggestions provide diverse viewing angles that complement each other
+4. Be specific about what the camera should focus on (e.g., "fireplace feature wall", "window with city view")
+5. Consider human eye-level photography (not top-down)
+6. Each suggestion should be 1-2 sentences describing what to photograph and why
 
-**Format:** Return ONLY ${suggestionCount} suggestions, one per line, starting with a dash. No numbering, no extra text.
+**Format:** Return ${minSuggestions}-${maxSuggestions} suggestions, one per line, starting with a dash. No numbering, no extra text.
 
-Example format:
+Example format for comprehensive coverage:
 - Wide shot from entry doorway capturing the entire room flow and natural light from the bay windows
-- Detail view of the built-in bookshelf and reading nook with architectural details
-${isLarge ? "- Diagonal angle from corner showcasing the open kitchen-living connection and island\n- Close-up of fireplace feature wall highlighting the custom tilework and mantel" : ""}
+- Opposite corner angle showcasing the full length of the space and furniture arrangement
+- Side angle from left wall highlighting the dining area connection and architectural details
+- Side angle from right wall capturing the kitchen island and adjacent living space
+${isLarge ? "- Detail view of the fireplace feature wall with surrounding built-ins\n- Close-up of the bay window seating area with natural light\n- Diagonal view from far corner emphasizing the room's depth and flow\n- Entrance perspective showing the transition from hallway into the open space" : "- Detail view focusing on key features and finishes"}
 
-Generate ${suggestionCount} suggestions NOW:`;
+Generate ${minSuggestions}-${maxSuggestions} suggestions NOW that TOGETHER provide complete spatial coverage:`;
 
     // Call Gemini API with vision
     const response = await fetch(
@@ -130,11 +144,19 @@ Generate ${suggestionCount} suggestions NOW:`;
       .split("\n")
       .filter((line: string) => line.trim().startsWith("-"))
       .map((line: string) => line.trim().substring(1).trim())
-      .slice(0, suggestionCount);
+      .slice(0, maxSuggestions); // Take up to max suggestions
 
     if (suggestions.length === 0) {
       console.warn("[save-camera-intents] AI returned no valid suggestions, using fallback");
       return generateFallbackSuggestions(space);
+    }
+
+    // Ensure we have at least minimum suggestions
+    if (suggestions.length < minSuggestions) {
+      console.warn(`[save-camera-intents] AI returned only ${suggestions.length} suggestions, expected ${minSuggestions}-${maxSuggestions}`);
+      // If too few, supplement with fallback
+      const fallback = generateFallbackSuggestions(space);
+      return [...suggestions, ...fallback].slice(0, minSuggestions);
     }
 
     return suggestions;
@@ -146,21 +168,28 @@ Generate ${suggestionCount} suggestions NOW:`;
 
 /**
  * Fallback suggestions when AI is unavailable
+ * Generates suggestions with spatial coverage logic
  */
 function generateFallbackSuggestions(space: any): string[] {
   const isLarge = ["living_room", "kitchen", "master_bedroom", "dining_room", "open_plan"].includes(space.space_type);
 
   if (isLarge) {
+    // Large spaces: 4-6 suggestions covering multiple angles
     return [
-      `Wide shot capturing the entire ${space.name} layout and natural light flow`,
-      `Detail view focusing on key architectural features and design elements in ${space.name}`,
-      `Diagonal angle showcasing the spatial connection and room depth`,
-      `Close-up highlighting unique fixtures and material finishes`,
+      `Wide shot from entry capturing the entire ${space.name} layout and natural light flow`,
+      `Opposite corner angle showcasing the full depth and spatial arrangement of ${space.name}`,
+      `Side angle highlighting key architectural features and design elements`,
+      `Diagonal perspective emphasizing the room's flow and connection to adjacent spaces`,
+      `Detail view focusing on unique fixtures and material finishes`,
+      `Close-up of focal point features and decorative elements`,
     ];
   } else {
+    // Normal spaces: 2-4 suggestions covering main views
     return [
-      `Wide view capturing the complete ${space.name} from the entry perspective`,
-      `Detail shot highlighting the functional layout and key features`,
+      `Wide view from entry capturing the complete ${space.name} layout and functionality`,
+      `Opposite angle showcasing the full space from the far wall perspective`,
+      `Side angle highlighting key features and architectural details`,
+      `Detail shot focusing on finishes and functional elements`,
     ];
   }
 }
