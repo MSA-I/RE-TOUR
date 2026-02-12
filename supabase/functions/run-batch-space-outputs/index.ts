@@ -243,7 +243,6 @@ serve(async (req) => {
 
             console.log(`[batch-outputs] Batch processing completed. Success: ${completedCount}, Failed: ${failedCount}`);
         };
-        };
 
         EdgeRuntime.waitUntil(processOutputs());
 
