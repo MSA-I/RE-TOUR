@@ -1411,10 +1411,22 @@ serve(async (req) => {
     // Parse step output IDs from step_outputs to avoid memory issues with large prompts later
     // We extract just what we need here and avoid using the full step_outputs until persistence
     const initialOutputs = (pipeline?.step_outputs || {}) as Record<string, any>;
-    const step1OutputId = initialOutputs.step1?.output_upload_id || null;
-    const step2OutputId = initialOutputs.step2?.output_upload_id || null;
-    const step3OutputId = initialOutputs.step3?.output_upload_id || null;
-    const step4OutputId = initialOutputs.step4?.output_upload_id || null;
+
+    // DEBUG: Log available keys to diagnose field name issues
+    console.log(`[run-pipeline-step] step_outputs keys available:`, Object.keys(initialOutputs));
+    console.log(`[run-pipeline-step] step1 data:`, JSON.stringify(initialOutputs.step1 || initialOutputs["1"]));
+
+    // Support both "step1" and "1" keys, and both "upload_id" and "output_upload_id" fields
+    const step1OutputId = initialOutputs.step1?.output_upload_id || initialOutputs.step1?.upload_id ||
+                          initialOutputs["1"]?.output_upload_id || initialOutputs["1"]?.upload_id || null;
+    const step2OutputId = initialOutputs.step2?.output_upload_id || initialOutputs.step2?.upload_id ||
+                          initialOutputs["2"]?.output_upload_id || initialOutputs["2"]?.upload_id || null;
+    const step3OutputId = initialOutputs.step3?.output_upload_id || initialOutputs.step3?.upload_id ||
+                          initialOutputs["3"]?.output_upload_id || initialOutputs["3"]?.upload_id || null;
+    const step4OutputId = initialOutputs.step4?.output_upload_id || initialOutputs.step4?.upload_id ||
+                          initialOutputs["4"]?.output_upload_id || initialOutputs["4"]?.upload_id || null;
+
+    console.log(`[run-pipeline-step] Extracted output IDs: step1=${step1OutputId}, step2=${step2OutputId}, step3=${step3OutputId}, step4=${step4OutputId}`);
     const step3CameraAngleFromDb = initialOutputs.step3?.camera_angle || null;
     const spaceAnalysis = initialOutputs.space_analysis || null;
     const dimensionAnalysis = initialOutputs.dimension_analysis || null;
@@ -1629,7 +1641,9 @@ serve(async (req) => {
 
       if (!prevStepOutput) {
         console.error(`[run-pipeline-step] No valid previous step output found for step ${currentStep}`);
-        throw new Error(`No previous step output found. Please ensure at least step 1 has completed successfully.`);
+        console.error(`[run-pipeline-step] Available step outputs:`, JSON.stringify(stepOutputIds));
+        console.error(`[run-pipeline-step] Full step_outputs keys:`, Object.keys(initialOutputs));
+        throw new Error(`No previous step output found for step ${currentStep}. Available outputs: ${Object.keys(stepOutputIds).filter(k => stepOutputIds[k]).join(', ')}. Please ensure step ${currentStep - 1} has completed successfully.`);
       }
 
       inputUploadId = prevStepOutput;

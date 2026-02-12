@@ -240,15 +240,15 @@ export const LEGAL_PHASE_TRANSITIONS: Record<string, string> = {
 };
 
 export const WHOLE_APARTMENT_STEP_NAMES = [
-  "Input Analysis (0.1 + 0.2)",    // Step 0
-  "Realistic 2D Plan",              // Step 1
-  "Style Application",              // Step 2
-  "Space Scan",                      // Step 3 (Internal, maps to Spec 0.2)
-  "Camera Intent (Decision-Only)",  // Step 4 (Spec Step 3)
-  "Prompt Templates + NanoBanana",  // Step 5 (NEW - Spec Step 4)
-  "Outputs + QA",                   // Step 6 (Spec Step 5)
-  "Future Capabilities",            // Step 7 (Spec Steps 6-9 placeholder)
-  "Final Approval",                 // Step 8 (Spec Step 10)
+  "Input Analysis",                  // Step 0
+  "Realistic 2D Plan",               // Step 1
+  "Style Application",               // Step 2
+  "Space Scan",                      // Step 3
+  "Camera Intent (Decision-Only)",   // Step 4
+  "Prompt Templates + Generation",   // Step 5 (NEW)
+  "Outputs + QA",                    // Step 6
+  "Future Capabilities",             // Step 7
+  "Final Approval",                  // Step 8
 ];
 
 export const STEP_BADGES: Record<number, string | null> = {
@@ -465,9 +465,11 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      queryClient.invalidateQueries({ queryKey: ["whole-apartment-spaces", pipelineId] });
     },
     onError: (error) => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      queryClient.invalidateQueries({ queryKey: ["whole-apartment-spaces", pipelineId] });
       console.error("[SPACE_ANALYSIS_START] Error:", error);
     },
   });
@@ -755,6 +757,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      queryClient.invalidateQueries({ queryKey: ["camera-intents", pipelineId] });
       toast({ title: "Camera Intents Generated", description: "Review suggestions for each space" });
     },
   });
@@ -773,6 +776,7 @@ export function useWholeApartmentPipeline(pipelineId: string | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
+      queryClient.invalidateQueries({ queryKey: ["final-prompts", pipelineId] });
       toast({ title: "Prompts Finalized", description: "Starting image generation..." });
     },
   });

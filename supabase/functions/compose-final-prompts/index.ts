@@ -70,13 +70,21 @@ serve(async (req) => {
             const spaceIntents = intentsBySpace[spaceId];
             const space = spaceIntents[0].space; // Assumes all intents in group belong to same space
 
-            // Composing prompt - Placeholder logic
-            // Real logic would combine intent texts + space attributes + global style
+            // Determine image count based on space size category
+            // Large spaces (Living Room, Kitchen, Master Bedroom, Dining Area) get 2-4 images
+            // Normal spaces get 1-2 images
+            const spaceSizeCategory = spaceIntents[0].space_size_category || 'normal';
+            const imageCount = spaceSizeCategory === 'large'
+                ? Math.min(spaceIntents.length, 4)  // Large spaces: 2-4 images based on intent count
+                : Math.min(spaceIntents.length, 2); // Normal spaces: 1-2 images
+
+            // Composing prompt - Combines intent texts + space attributes
+            // Real logic would also incorporate global style profile from pipeline
             const promptTemplate = spaceIntents.map(i => i.suggestion_text).join(" + ");
             const finalPrompt = `Photorealistic render of ${space.name}, ${promptTemplate}, 8k resolution, interior design photography`;
 
-            const jobId = `nano_${crypto.randomUUID()}`; // Placeholder Nanobanana Job ID
-            nanoBananaJobs.push({ spaceId, jobId });
+            const jobId = `nano_${crypto.randomUUID()}`; // Placeholder Nanobanana Job ID (will be real job ID when queued)
+            nanoBananaJobs.push({ spaceId, jobId, imageCount });
 
             promptsToInsert.push({
                 pipeline_id,
@@ -84,10 +92,10 @@ serve(async (req) => {
                 owner_id: user.id,
                 prompt_template: promptTemplate,
                 final_composed_prompt: finalPrompt,
-                image_count: 1, // Default
+                image_count: imageCount,
                 source_camera_intent_ids: spaceIntents.map(i => i.id),
                 nanobanana_job_id: jobId,
-                status: 'queued' // Queued for generation
+                status: 'queued' // Queued for generation (actual generation happens in Step 6)
             });
         }
 

@@ -35,6 +35,18 @@ import { PromptFinalizationPanel } from "@/components/whole-apartment/PromptFina
 import { StopResetStepButton } from "@/components/whole-apartment/StopResetStepButton";
 import { StepControlsFooter } from "@/components/whole-apartment/StepControlsFooter";
 
+// NEW: Modular step components with PipelineContext
+import { PipelineProvider } from "@/contexts/PipelineContext";
+import {
+  Step0_DesignRefAndSpaceScan,
+  Step1_RealisticPlan,
+  Step2_StyleApplication,
+  Step3_SpaceScan,
+  Step4_CameraIntent,
+  Step5_PromptTemplates,
+  Step6_OutputsQA,
+} from "@/components/whole-apartment/steps";
+
 import { SpaceGraphSummary } from "@/components/whole-apartment/SpaceGraphSummary";
 import { PipelineDebugPanel } from "@/components/whole-apartment/PipelineDebugPanel";
 import { Step7PreRunSettings } from "@/components/whole-apartment/Step7PreRunSettings";
@@ -736,6 +748,9 @@ function GlobalStepsSection({
   onContinueToStep,
   isResetPending,
   isRollbackPending,
+  isRunningDesignRefScan,
+  isGeneratingImages,
+  handleRunDesignReferenceScan,
 }: {
   pipeline: FloorplanPipeline;
   imagePreviews: Record<string, string>;
@@ -763,6 +778,9 @@ function GlobalStepsSection({
   onContinueToStep: (fromStep: number, fromPhase: string) => void;
   isResetPending?: boolean;
   isRollbackPending?: boolean;
+  isRunningDesignRefScan: boolean;
+  isGeneratingImages: boolean;
+  handleRunDesignReferenceScan: () => void;
 }) {
   const { toast } = useToast();
   const { getSignedViewUrl } = useStorage();
@@ -2126,6 +2144,9 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [step4PanelOpen, setStep4PanelOpen] = useState(false);
+  // Step 5 & 6: New modular components state
+  const [step5PanelOpen, setStep5PanelOpen] = useState(false);
+  const [step6PanelOpen, setStep6PanelOpen] = useState(false);
 
   const {
     spaces: pipelineSpaces,
@@ -2201,6 +2222,27 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
 
       if (error) {
         console.error("[camera-intents] Query error:", error);
+        return [];
+      }
+
+      return data || [];
+    },
+    enabled: !!pipeline.id,
+    staleTime: 5000,
+  });
+
+  // Query: Fetch final prompts for Step 5
+  const { data: finalPrompts = [], refetch: refetchFinalPrompts } = useQuery({
+    queryKey: ["final-prompts", pipeline.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("final_prompts")
+        .select("*")
+        .eq("pipeline_id", pipeline.id)
+        .order("space_id");
+
+      if (error) {
+        console.error("[final-prompts] Query error:", error);
         return [];
       }
 
@@ -2928,6 +2970,82 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
   const outputsPendingApproval = (step1PendingApproval ? 1 : 0) + (step2PendingApproval ? 1 : 0) + spacePendingApprovalCount;
   const approvalLocked = outputsPendingApproval > 0;
 
+  // Create PipelineContext value for modular step components
+  const pipelineContextValue = {
+    // Pipeline state
+    pipeline,
+    spaces,
+    imagePreviews,
+    currentStep: pipeline.current_step || currentStep,
+
+    // Camera intents
+    cameraIntents,
+    refetchCameraIntents,
+
+    // Final prompts
+    finalPrompts,
+    refetchFinalPrompts,
+
+    // Mutations - Pipeline progression (wrap mutation objects as functions)
+    runSpaceAnalysis: async () => {
+      return runSpaceAnalysis.mutateAsync({ pipelineId: pipeline.id });
+    },
+    runTopDown3D: async () => {
+      return runTopDown3D.mutateAsync({ pipelineId: pipeline.id });
+    },
+    runStyleTopDown: async () => {
+      const refIds = (pipeline.step_outputs as any)?.design_reference_ids || [];
+      return runStyleTopDown.mutateAsync({ pipelineId: pipeline.id, designRefUploadIds: refIds });
+    },
+    runDetectSpaces: async () => {
+      return runDetectSpaces.mutateAsync({ pipelineId: pipeline.id });
+    },
+    continueToStep: async (params: { from_phase: string }) => {
+      return continueToStep.mutateAsync({
+        pipelineId: pipeline.id,
+        fromStep: pipeline.current_step,
+        fromPhase: params.from_phase,
+      });
+    },
+
+    // Mutations - Step 4-6 specific
+    saveCameraIntents: async (intentIds: string[]) => {
+      return saveCameraIntents.mutateAsync({ pipelineId: pipeline.id, selectedIntentIds: intentIds });
+    },
+    composeFinalPrompts: async (intentIds: string[]) => {
+      return composeFinalPrompts.mutateAsync({ pipelineId: pipeline.id, selectedIntentIds: intentIds });
+    },
+    runBatchOutputs: async () => {
+      return runBatchOutputs.mutateAsync({ pipelineId: pipeline.id });
+    },
+
+    // Mutations - Step control (reset/rollback)
+    restartStep: async (stepNumber: number) => {
+      return restartStep.mutateAsync({ pipelineId: pipeline.id, stepNumber });
+    },
+    rollbackToPreviousStep: async (currentStepNumber: number) => {
+      return rollbackToPreviousStep.mutateAsync({ pipelineId: pipeline.id, currentStepNumber });
+    },
+
+    // Loading states
+    isLoadingSpaces,
+    isRunningStep: isRunning,
+    isGeneratingPrompts,
+    isGeneratingImages,
+    isResetPending: restartStep.isPending,
+    isRollbackPending: rollbackToPreviousStep.isPending,
+
+    // Progress
+    progress,
+    progressDetails: progressDetails?.message,
+
+    // Toast
+    toast,
+
+    // Callbacks
+    onUpdatePipeline,
+  };
+
   return (
     <>
       <Card className="border-border/50">
@@ -3038,6 +3156,8 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {/* Wrap content in PipelineProvider for modular step components */}
+          <PipelineProvider value={pipelineContextValue}>
           {/* Error Banner */}
           {hasError && (
             <div className="p-4 bg-destructive/10 border-2 border-destructive/50 rounded-lg">
@@ -3143,139 +3263,17 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-2 space-y-2">
-              <GlobalStepsSection
-                pipeline={pipeline}
-                imagePreviews={imagePreviews}
-                spaces={spaces}
-                onRunSpaceAnalysis={handleRunSpaceAnalysis}
-                onRunTopDown={handleRunTopDown}
-                onRunStyle={handleRunStyle}
-                onConfirmCameraPlan={() => confirmCameraPlan.mutate()}
-                onRunDetectSpaces={handleRunDetectSpaces}
-                onRetryDetectSpaces={handleRetryDetectSpaces}
-                onApproveStep={handleApproveGlobalStep}
-                onRejectStep={handleRejectGlobalStep}
-                isRunning={isAnyMutationPending}
-                isRetryingStep4={retryDetectSpaces.isPending}
-                isConfirmingCameraPlan={isConfirmingCameraPlanHook}
-                manualQAEnabled={manualQAEnabled}
-                approvalLocked={approvalLocked}
-                onAction={onAction}
-                currentStep={currentStep}
-                stepRetryState={(pipeline as any).step_retry_state as Record<string, StepRetryState> | undefined}
-                onManualApproveStep={async (stepNumber, outputUploadId) => {
-                  try {
-                    await manualApproveAfterRetryExhaustion.mutateAsync({
-                      pipelineId: pipeline.id,
-                      stepNumber,
-                      outputUploadId,
-                    });
-                    toast({
-                      title: "Approved manually",
-                      description: `Step ${stepNumber} approved. Step ${stepNumber + 1} is now unlocked.`,
-                    });
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : "Manual approval failed";
-                    toast({
-                      title: "Manual approval failed",
-                      description: message,
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                onManualRejectStep={async (stepNumber) => {
-                  try {
-                    await rejectAfterRetryExhaustion.mutateAsync({ pipelineId: pipeline.id, stepNumber });
-                    toast({
-                      title: "Pipeline stopped",
-                      description: `Step ${stepNumber} rejected. All attempts failed QA - pipeline has been stopped.`,
-                      variant: "destructive",
-                    });
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : "Failed to stop pipeline";
-                    toast({
-                      title: "Failed to stop pipeline",
-                      description: message,
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                onRestartStep={async (stepNumber) => {
-                  try {
-                    await restartStep.mutateAsync({ pipelineId: pipeline.id, stepNumber });
-                    toast({
-                      title: "Step restarted",
-                      description: `Step ${stepNumber} has been reset. Click "Generate" to create new outputs with QA.`,
-                    });
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : "Failed to restart step";
-                    toast({
-                      title: "Restart failed",
-                      description: message,
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                onRollbackStep={async (stepNumber) => {
-                  try {
-                    await rollbackToPreviousStep.mutateAsync({ pipelineId: pipeline.id, currentStepNumber: stepNumber });
-                    toast({
-                      title: "Rolled back",
-                      description: `Returned to Step ${stepNumber - 1}. Step ${stepNumber}+ outputs have been cleared.`,
-                    });
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : "Failed to rollback";
-                    toast({
-                      title: "Rollback failed",
-                      description: message,
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                isResetPending={restartStep.isPending}
-                isRollbackPending={rollbackToPreviousStep.isPending}
-                onContinueToStep={async (fromStep, fromPhase) => {
-                  try {
-                    // Defensive: avoid firing a transition from stale UI state.
-                    // The backend enforces optimistic concurrency (409 on phase mismatch),
-                    // so we preflight-read the latest phase before calling continue.
-                    const { data: latest, error: latestErr } = await supabase
-                      .from("floorplan_pipelines")
-                      .select("whole_apartment_phase, current_step")
-                      .eq("id", pipeline.id)
-                      .maybeSingle();
+              {/* Step 0: Design Ref + Space Scan */}
+              <Step0_DesignRefAndSpaceScan />
 
-                    if (latestErr) throw latestErr;
+              {/* Step 1: Realistic 2D Plan */}
+              <Step1_RealisticPlan />
 
-                    const latestPhase = latest?.whole_apartment_phase ?? "";
+              {/* Step 2: Style Application */}
+              <Step2_StyleApplication />
 
-                    if (latestPhase !== fromPhase) {
-                      // Bring UI back in sync and avoid triggering an invalid transition.
-                      queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines", pipeline.project_id] });
-                      queryClient.invalidateQueries({ queryKey: ["floorplan-pipelines"] });
-
-                      toast({
-                        title: "Pipeline already advanced",
-                        description: `Current phase is '${latestPhase || "unknown"}'. Refreshing pipeline state…`,
-                      });
-                      return;
-                    }
-
-                    continueToStep.mutate({
-                      pipelineId: pipeline.id,
-                      fromStep,
-                      fromPhase,
-                    });
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : "Failed to continue";
-                    toast({
-                      title: "Continue failed",
-                      description: message,
-                      variant: "destructive",
-                    });
-                  }
-                }}
-              />
+              {/* Step 3: Space Scan (Internal) */}
+              <Step3_SpaceScan />
 
               {/* Backend Activity Indicator - shows last event and stale recovery */}
               <BackendActivityIndicator
@@ -3296,6 +3294,51 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
                 stepOutputs={stepOutputsAll}
                 lastAction={lastAction ? `${lastAction.type}` : undefined}
               />
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* Step 4: Camera Intent (Decision-Only) */}
+          <Collapsible open={step4PanelOpen} onOpenChange={setStep4PanelOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-between h-auto py-2">
+                <span className="text-sm font-medium">Step 4: Camera Intent</span>
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${step4PanelOpen ? "rotate-180" : ""}`}
+                />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2">
+              <Step4_CameraIntent />
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* Step 5: Prompt Templates + Generation */}
+          <Collapsible open={step5PanelOpen} onOpenChange={setStep5PanelOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-between h-auto py-2">
+                <span className="text-sm font-medium">Step 5: Prompt Templates</span>
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${step5PanelOpen ? "rotate-180" : ""}`}
+                />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2">
+              <Step5_PromptTemplates />
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* Step 6: Outputs + QA */}
+          <Collapsible open={step6PanelOpen} onOpenChange={setStep6PanelOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-between h-auto py-2">
+                <span className="text-sm font-medium">Step 6: Outputs + QA</span>
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${step6PanelOpen ? "rotate-180" : ""}`}
+                />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2">
+              <Step6_OutputsQA />
             </CollapsibleContent>
           </Collapsible>
 
@@ -3812,6 +3855,7 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
               </div>
             </div>
           )}
+          </PipelineProvider>
         </CardContent>
 
         {/* Settings Drawer */}

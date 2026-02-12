@@ -1,0 +1,28 @@
+name: Database Migration Check
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+
+jobs:
+  migration-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        
+      - name: Run migration linter
+        run: |
+          supabase db lint
+          
+      - name: Check for breaking changes
+        run: |
+          # Check if any migrations drop columns or tables
+          if grep -r "DROP COLUMN\|DROP TABLE" supabase/migrations/; then
+            echo "⚠️ Migration contains potentially breaking changes"
+            echo "Please verify rollback strategy is in place"
+            exit 1
+          fi
