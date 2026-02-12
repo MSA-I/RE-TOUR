@@ -56,7 +56,16 @@
       "Bash(deno check:*)",
       "mcp__supabase__get_edge_function_details",
       "mcp__supabase__list_rls_policies",
-      "Bash(supabase functions logs:*)"
+      "Bash(supabase functions logs:*)",
+      "Bash(curl:*)",
+      "Bash(git stash:*)",
+      "mcp__supabase__verify_jwt_secret",
+      "Bash(python3:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run test:run:*)",
+      "Bash(git mv:*)",
+      "Bash(supabase test:*)",
+      "Bash(start:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
