@@ -61,7 +61,6 @@ export function CameraIntentSelectorPanel({
   const [suggestions, setSuggestions] = useState<CameraIntentSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Fetch camera intent suggestions from database (auto-generate if empty)
   useEffect(() => {
@@ -154,33 +153,22 @@ export function CameraIntentSelectorPanel({
     }
   };
 
-  // Validate: at least 1 selection per space
-  const validateSelections = (): Record<string, string> => {
-    const errors: Record<string, string> = {};
-
-    spaces.forEach(space => {
-      const spaceSuggestions = suggestionsBySpace.get(space.id) || [];
-      const hasSelection = spaceSuggestions.some(s => s.is_selected);
-
-      if (!hasSelection && spaceSuggestions.length > 0) {
-        errors[space.id] = `Please select at least one camera intent for ${space.name}`;
-      }
-    });
-
-    return errors;
+  // Validate: at least 1 selection total (user can select for only some spaces)
+  const validateSelections = (): boolean => {
+    // Check if at least one suggestion is selected across ALL spaces
+    const totalSelected = suggestions.filter(s => s.is_selected).length;
+    return totalSelected > 0;
   };
 
   // Handle confirm button
   const handleConfirm = async () => {
-    const errors = validateSelections();
+    const isValid = validateSelections();
 
-    if (Object.keys(errors).length > 0) {
-      setValidationErrors(errors);
-
+    if (!isValid) {
       // Announce error to screen readers
       toast({
-        title: 'Validation Error',
-        description: 'Please select at least one camera intent for each space',
+        title: 'No Selections Made',
+        description: 'Please select at least one camera intent suggestion for any space',
         variant: 'destructive',
       });
 
@@ -292,17 +280,12 @@ export function CameraIntentSelectorPanel({
         <div className="space-y-6">
           {spaces.map(space => {
             const spaceSuggestions = suggestionsBySpace.get(space.id) || [];
-            const hasError = !!validationErrors[space.id];
             const selectedCount = spaceSuggestions.filter(s => s.is_selected).length;
 
             return (
               <fieldset
                 key={space.id}
-                className={cn(
-                  "rounded-lg border border-border p-4 transition-colors",
-                  hasError && "border-red-500 bg-red-50 dark:bg-red-950/20"
-                )}
-                aria-describedby={hasError ? `error-${space.id}` : undefined}
+                className="rounded-lg border border-border p-4 transition-colors"
               >
                 <legend className="px-2 text-base font-medium">
                   {space.name}
@@ -312,18 +295,6 @@ export function CameraIntentSelectorPanel({
                     </span>
                   )}
                 </legend>
-
-                {/* Error message - positioned near the problem (UX guideline #33) */}
-                {hasError && (
-                  <div
-                    id={`error-${space.id}`}
-                    className="mb-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200"
-                    role="alert"
-                  >
-                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
-                    <span>{validationErrors[space.id]}</span>
-                  </div>
-                )}
 
                 {spaceSuggestions.length === 0 ? (
                   <p className="py-4 text-center text-sm text-muted-foreground">
