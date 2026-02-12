@@ -97,4 +97,11 @@ This is a self-hosted project with multiple deployment options:
 
 **Backend Deployment**:
 - Supabase Edge Functions (already deployed)
-- See `DEPLOYMENT_READY.md` for detailed instructions
+- See `Troubleshooting_Agent/DEPLOYMENT_READY.md` for detailed instructions
+
+## TROUBLESHOOTING & AGENT WORK
+
+**ATTENTION AGENTS**: All troubleshooting logs, status updates, and temporary implementation summaries are now located in the `Troubleshooting_Agent/` directory.
+
+- **Do NOT** create new markdown files in the root directory unless they are core project documentation.
+- Check `Troubleshooting_Agent/` for historical context on fixes and issues.
