@@ -772,6 +772,7 @@ function GlobalStepsSection({
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [cameraPlanningOpen, setCameraPlanningOpen] = useState(false);
   const [step4PanelOpen, setStep4PanelOpen] = useState(false);
+  const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
   const [rejectNotes, setRejectNotes] = useState("");
   const [pendingRejectStep, setPendingRejectStep] = useState<number | null>(null);
 
