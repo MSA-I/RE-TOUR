@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { transformStorageUrl } from "../_shared/url-transform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -108,7 +109,7 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        signedUrl: data.signedUrl,
+        signedUrl: transformStorageUrl(data.signedUrl, supabaseUrl),
         token: data.token,
         path: data.path
       }),

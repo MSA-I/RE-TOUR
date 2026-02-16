@@ -1,18 +1,6 @@
 -- Migration: Add new phases for Steps 4-5 and rename existing phases
--- This migration adds new pipeline phase values and migrates existing pipelines
-
--- Add new phases to the whole_apartment_phase enum
-DO $$ BEGIN
-  ALTER TYPE whole_apartment_phase ADD VALUE IF NOT EXISTS 'camera_intent_pending';
-  ALTER TYPE whole_apartment_phase ADD VALUE IF NOT EXISTS 'camera_intent_confirmed';
-  ALTER TYPE whole_apartment_phase ADD VALUE IF NOT EXISTS 'prompt_templates_pending';
-  ALTER TYPE whole_apartment_phase ADD VALUE IF NOT EXISTS 'prompt_templates_confirmed';
-  ALTER TYPE whole_apartment_phase ADD VALUE IF NOT EXISTS 'outputs_pending';
-  ALTER TYPE whole_apartment_phase ADD VALUE IF NOT EXISTS 'outputs_in_progress';
-  ALTER TYPE whole_apartment_phase ADD VALUE IF NOT EXISTS 'outputs_review';
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
+-- This migration migrates existing pipelines from old phase names to new ones
+-- Note: whole_apartment_phase is a TEXT column, not an enum, so no type modification needed
 
 -- Migrate existing pipelines from old phases to new phases
 UPDATE floorplan_pipelines

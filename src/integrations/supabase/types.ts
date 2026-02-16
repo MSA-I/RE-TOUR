@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       batch_job_events: {
@@ -224,6 +249,105 @@ export type Database = {
           title?: string
         }
         Relationships: []
+      }
+      final_prompts: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          attempt_number: number | null
+          completed_at: string | null
+          created_at: string | null
+          executed_at: string | null
+          final_composed_prompt: string
+          id: string
+          image_count: number | null
+          locked_approved: boolean | null
+          manual_approved: boolean | null
+          nanobanana_job_id: string | null
+          output_upload_ids: string[] | null
+          owner_id: string
+          pipeline_id: string
+          prompt_template: string
+          qa_feedback: string | null
+          qa_reason: string | null
+          qa_report: Json | null
+          qa_score: number | null
+          qa_status: string | null
+          source_camera_intent_ids: string[]
+          space_id: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          attempt_number?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          executed_at?: string | null
+          final_composed_prompt: string
+          id?: string
+          image_count?: number | null
+          locked_approved?: boolean | null
+          manual_approved?: boolean | null
+          nanobanana_job_id?: string | null
+          output_upload_ids?: string[] | null
+          owner_id: string
+          pipeline_id: string
+          prompt_template: string
+          qa_feedback?: string | null
+          qa_reason?: string | null
+          qa_report?: Json | null
+          qa_score?: number | null
+          qa_status?: string | null
+          source_camera_intent_ids: string[]
+          space_id: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          attempt_number?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          executed_at?: string | null
+          final_composed_prompt?: string
+          id?: string
+          image_count?: number | null
+          locked_approved?: boolean | null
+          manual_approved?: boolean | null
+          nanobanana_job_id?: string | null
+          output_upload_ids?: string[] | null
+          owner_id?: string
+          pipeline_id?: string
+          prompt_template?: string
+          qa_feedback?: string | null
+          qa_reason?: string | null
+          qa_report?: Json | null
+          qa_score?: number | null
+          qa_status?: string | null
+          source_camera_intent_ids?: string[]
+          space_id?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_prompts_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "floorplan_pipelines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "final_prompts_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "floorplan_pipeline_spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       floorplan_pipeline_events: {
         Row: {
@@ -456,6 +580,8 @@ export type Database = {
           created_at: string
           current_step: number
           current_step_last_heartbeat_at: string | null
+          design_reference_analyzed_at: string | null
+          design_reference_scan_complete: boolean | null
           floor_plan_upload_id: string
           forward_direction: string | null
           global_3d_render_id: string | null
@@ -478,6 +604,8 @@ export type Database = {
           renders_approved_at: string | null
           resumed_at: string | null
           run_state: string | null
+          space_scan_analyzed_at: string | null
+          space_scan_complete: boolean | null
           spaces_approved_at: string | null
           status: string
           step_outputs: Json | null
@@ -503,6 +631,8 @@ export type Database = {
           created_at?: string
           current_step?: number
           current_step_last_heartbeat_at?: string | null
+          design_reference_analyzed_at?: string | null
+          design_reference_scan_complete?: boolean | null
           floor_plan_upload_id: string
           forward_direction?: string | null
           global_3d_render_id?: string | null
@@ -525,6 +655,8 @@ export type Database = {
           renders_approved_at?: string | null
           resumed_at?: string | null
           run_state?: string | null
+          space_scan_analyzed_at?: string | null
+          space_scan_complete?: boolean | null
           spaces_approved_at?: string | null
           status?: string
           step_outputs?: Json | null
@@ -550,6 +682,8 @@ export type Database = {
           created_at?: string
           current_step?: number
           current_step_last_heartbeat_at?: string | null
+          design_reference_analyzed_at?: string | null
+          design_reference_scan_complete?: boolean | null
           floor_plan_upload_id?: string
           forward_direction?: string | null
           global_3d_render_id?: string | null
@@ -572,6 +706,8 @@ export type Database = {
           renders_approved_at?: string | null
           resumed_at?: string | null
           run_state?: string | null
+          space_scan_analyzed_at?: string | null
+          space_scan_complete?: boolean | null
           spaces_approved_at?: string | null
           status?: string
           step_outputs?: Json | null
@@ -1193,6 +1329,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      migration_log: {
+        Row: {
+          applied_at: string | null
+          id: string
+          migration_name: string
+        }
+        Insert: {
+          applied_at?: string | null
+          id?: string
+          migration_name: string
+        }
+        Update: {
+          applied_at?: string | null
+          id?: string
+          migration_name?: string
+        }
+        Relationships: []
       }
       multi_image_panorama_events: {
         Row: {
@@ -2893,6 +3047,8 @@ export type Database = {
           created_at: string
           current_step: number
           current_step_last_heartbeat_at: string | null
+          design_reference_analyzed_at: string | null
+          design_reference_scan_complete: boolean | null
           floor_plan_upload_id: string
           forward_direction: string | null
           global_3d_render_id: string | null
@@ -2915,6 +3071,8 @@ export type Database = {
           renders_approved_at: string | null
           resumed_at: string | null
           run_state: string | null
+          space_scan_analyzed_at: string | null
+          space_scan_complete: boolean | null
           spaces_approved_at: string | null
           status: string
           step_outputs: Json | null
@@ -2949,6 +3107,8 @@ export type Database = {
           created_at: string
           current_step: number
           current_step_last_heartbeat_at: string | null
+          design_reference_analyzed_at: string | null
+          design_reference_scan_complete: boolean | null
           floor_plan_upload_id: string
           forward_direction: string | null
           global_3d_render_id: string | null
@@ -2971,6 +3131,8 @@ export type Database = {
           renders_approved_at: string | null
           resumed_at: string | null
           run_state: string | null
+          space_scan_analyzed_at: string | null
+          space_scan_complete: boolean | null
           spaces_approved_at: string | null
           status: string
           step_outputs: Json | null
@@ -3006,13 +3168,47 @@ export type Database = {
     }
     Enums: {
       job_status:
-      | "queued"
-      | "running"
-      | "needs_review"
-      | "approved"
-      | "rejected"
-      | "failed"
+        | "queued"
+        | "running"
+        | "needs_review"
+        | "approved"
+        | "rejected"
+        | "failed"
       project_status: "draft" | "active" | "completed" | "failed"
+      whole_apartment_phase:
+        | "upload"
+        | "space_analysis_pending"
+        | "space_analysis_running"
+        | "space_analysis_complete"
+        | "top_down_3d_pending"
+        | "top_down_3d_running"
+        | "top_down_3d_review"
+        | "style_pending"
+        | "style_running"
+        | "style_review"
+        | "detect_spaces_pending"
+        | "detecting_spaces"
+        | "spaces_detected"
+        | "camera_intent_pending"
+        | "camera_intent_confirmed"
+        | "camera_plan_pending"
+        | "camera_plan_confirmed"
+        | "prompt_templates_pending"
+        | "prompt_templates_confirmed"
+        | "outputs_pending"
+        | "outputs_in_progress"
+        | "outputs_review"
+        | "renders_pending"
+        | "renders_in_progress"
+        | "renders_review"
+        | "panoramas_pending"
+        | "panoramas_in_progress"
+        | "panoramas_review"
+        | "merging_pending"
+        | "merging_in_progress"
+        | "merging_review"
+        | "completed"
+        | "failed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -3026,118 +3222,121 @@ type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-  | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-  : never = never,
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
-  ? R
-  : never
+    ? R
+    : never
   : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-    DefaultSchema["Views"])
-  ? (DefaultSchema["Tables"] &
-    DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-      Row: infer R
-    }
-  ? R
-  : never
-  : never
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-  | keyof DefaultSchema["Tables"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-    Insert: infer I
-  }
-  ? I
-  : never
+      Insert: infer I
+    }
+    ? I
+    : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-    Insert: infer I
-  }
-  ? I
-  : never
-  : never
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-  | keyof DefaultSchema["Tables"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-    Update: infer U
-  }
-  ? U
-  : never
+      Update: infer U
+    }
+    ? U
+    : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-    Update: infer U
-  }
-  ? U
-  : never
-  : never
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-  | keyof DefaultSchema["Enums"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-  ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-  : never
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-  | keyof DefaultSchema["CompositeTypes"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-  ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-  : never
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       job_status: [
@@ -3149,6 +3348,41 @@ export const Constants = {
         "failed",
       ],
       project_status: ["draft", "active", "completed", "failed"],
+      whole_apartment_phase: [
+        "upload",
+        "space_analysis_pending",
+        "space_analysis_running",
+        "space_analysis_complete",
+        "top_down_3d_pending",
+        "top_down_3d_running",
+        "top_down_3d_review",
+        "style_pending",
+        "style_running",
+        "style_review",
+        "detect_spaces_pending",
+        "detecting_spaces",
+        "spaces_detected",
+        "camera_intent_pending",
+        "camera_intent_confirmed",
+        "camera_plan_pending",
+        "camera_plan_confirmed",
+        "prompt_templates_pending",
+        "prompt_templates_confirmed",
+        "outputs_pending",
+        "outputs_in_progress",
+        "outputs_review",
+        "renders_pending",
+        "renders_in_progress",
+        "renders_review",
+        "panoramas_pending",
+        "panoramas_in_progress",
+        "panoramas_review",
+        "merging_pending",
+        "merging_in_progress",
+        "merging_review",
+        "completed",
+        "failed",
+      ],
     },
   },
 } as const

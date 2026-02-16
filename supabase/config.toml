@@ -144,9 +144,6 @@ verify_jwt = false
 [functions.continue-pipeline-step]
 verify_jwt = false
 
-[functions.confirm-camera-plan]
-verify_jwt = false
-
 [functions.store-qa-feedback]
 verify_jwt = false
 

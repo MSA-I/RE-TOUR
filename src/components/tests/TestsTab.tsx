@@ -15,7 +15,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LazyImage } from "@/components/LazyImage";
 import { AspectRatioPreview, AspectRatioSelectItemContent } from "@/components/AspectRatioPreview";
 import {
-  Loader2, Upload, Image, Wand2, X, Play, Check, AlertTriangle, Terminal, Trash2
+  Loader2, Upload, Image, Wand2, X, Play, Check, AlertTriangle, Terminal, Trash2, Paperclip
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -180,11 +180,13 @@ const TestJobCard = memo(function TestJobCard({
   isSelected,
   onSelect,
   onViewOutput,
+  onCancel,
 }: {
   job: TestJob & { source: any; output: any };
   isSelected: boolean;
   onSelect: () => void;
   onViewOutput: (url: string) => void;
+  onCancel?: () => void;
 }) {
   const { getSignedViewUrl } = useStorage();
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
@@ -193,7 +195,11 @@ const TestJobCard = memo(function TestJobCard({
   // Load source thumbnail
   useEffect(() => {
     if (job.source) {
-      getSignedViewUrl(job.source.bucket, job.source.path).then(r => {
+      getSignedViewUrl(job.source.bucket, job.source.path, 3600, {
+        width: 200,
+        height: 200,
+        resize: 'cover'
+      }).then(r => {
         if (r.signedUrl) setSourceUrl(r.signedUrl);
       });
     }
@@ -202,7 +208,11 @@ const TestJobCard = memo(function TestJobCard({
   // Load output thumbnail when available
   useEffect(() => {
     if (job.output) {
-      getSignedViewUrl(job.output.bucket, job.output.path).then(r => {
+      getSignedViewUrl(job.output.bucket, job.output.path, 3600, {
+        width: 200,
+        height: 200,
+        resize: 'cover'
+      }).then(r => {
         if (r.signedUrl) setOutputUrl(r.signedUrl);
       });
     }
@@ -216,10 +226,23 @@ const TestJobCard = memo(function TestJobCard({
 
   return (
     <div
-      className={`p-3 rounded-lg border cursor-pointer transition-all ${isSelected ? "border-primary ring-1 ring-primary/20" : "border-border hover:border-primary/50"
+      className={`p-3 rounded-lg border cursor-pointer transition-all relative ${isSelected ? "border-primary ring-1 ring-primary/20" : "border-border hover:border-primary/50"
         }`}
       onClick={onSelect}
     >
+      {(job.status === "queued" || job.status === "running") && onCancel && (
+        <Button
+          variant="destructive"
+          size="sm"
+          className="absolute -top-2 -right-2 h-6 px-2 text-[10px] font-bold shadow-lg z-10"
+          onClick={(e) => {
+            e.stopPropagation();
+            onCancel();
+          }}
+        >
+          CANCEL
+        </Button>
+      )}
       <div className="flex items-start gap-3">
         {/* Source thumbnail */}
         <div className="w-16 h-16 rounded bg-muted shrink-0 overflow-hidden">
@@ -237,10 +260,10 @@ const TestJobCard = memo(function TestJobCard({
           <div className="flex items-center gap-2 mb-1">
             <Badge className={statusColor}>{job.status}</Badge>
             {job.aspect_ratio && (
-              <span className="text-xs text-muted-foreground">{job.aspect_ratio}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{job.aspect_ratio}</span>
             )}
             {job.output_quality && (
-              <span className="text-xs text-muted-foreground">{job.output_quality.toUpperCase()}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{job.output_quality.toUpperCase()}</span>
             )}
           </div>
           <p className="text-xs text-muted-foreground truncate">{job.change_description}</p>
@@ -423,7 +446,7 @@ function useRecentUploads(projectId: string) {
 export function TestsTab({ projectId }: TestsTabProps) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { getSignedUploadUrl, getSignedViewUrl } = useStorage();
+  const { uploadFile, getSignedViewUrl } = useStorage();
   const queryClient = useQueryClient();
 
   const { jobs, isLoading, refetch } = useTestJobs(projectId);
@@ -431,6 +454,7 @@ export function TestsTab({ projectId }: TestsTabProps) {
 
   // Upload state
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
+  const [referenceImages, setReferenceImages] = useState<UploadedImage[]>([]); // External reference images
   const [changeRequest, setChangeRequest] = useState("");
   const [selectedRatio, setSelectedRatio] = useState("1:1");
   const [selectedQuality, setSelectedQuality] = useState("2k");
@@ -444,6 +468,7 @@ export function TestsTab({ projectId }: TestsTabProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const refFileInputRef = useRef<HTMLInputElement>(null); // For reference images
 
   // Handle file selection
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -471,6 +496,32 @@ export function TestsTab({ projectId }: TestsTabProps) {
     }
   }, []);
 
+  // Handle reference file selection
+  const handleRefFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newImages: UploadedImage[] = [];
+
+    for (const file of Array.from(files)) {
+      // Create local preview
+      const previewUrl = URL.createObjectURL(file);
+      newImages.push({
+        id: `ref-local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        filename: file.name,
+        previewUrl,
+        file,
+      });
+    }
+
+    setReferenceImages(prev => [...prev, ...newImages]);
+
+    // Reset input
+    if (refFileInputRef.current) {
+      refFileInputRef.current.value = "";
+    }
+  }, []);
+
   // Handle selecting a recent upload
   const handleSelectRecent = useCallback(async (upload: any) => {
     // Generate signed URL for preview
@@ -491,6 +542,26 @@ export function TestsTab({ projectId }: TestsTabProps) {
   const handleRemoveImage = useCallback((id: string) => {
     setUploadedImages(prev => prev.filter(img => img.id !== id));
   }, []);
+
+  // Remove reference image
+  const handleRemoveReferenceImage = useCallback((id: string) => {
+    setReferenceImages(prev => prev.filter(img => img.id !== id));
+  }, []);
+
+  // Batch processing helper to limit concurrency
+  const processBatch = async <T, R>(
+    items: T[],
+    processFn: (item: T) => Promise<R>,
+    concurrency: number = 3
+  ): Promise<R[]> => {
+    const results: R[] = [];
+    for (let i = 0; i < items.length; i += concurrency) {
+      const batch = items.slice(i, i + concurrency);
+      const batchResults = await Promise.all(batch.map(processFn));
+      results.push(...batchResults);
+    }
+    return results;
+  };
 
   // Submit test jobs
   // Submit test jobs
@@ -516,23 +587,30 @@ export function TestsTab({ projectId }: TestsTabProps) {
 
     try {
       const uploadIds: string[] = [];
+      const referenceUploadIds: string[] = [];
 
-      // 1) Handle all uploads first
+      const finalImages: UploadedImage[] = [];
+      const finalRefs: UploadedImage[] = [];
+
+      // 1) Handle primary test uploads
       for (const image of uploadedImages) {
         if (image.isReused) {
           uploadIds.push(image.id);
+          finalImages.push(image);
         } else {
           if (!image.file) continue;
 
           setIsUploading(true);
+          const path = `${user.id}/tests/${Date.now()}-${image.filename.replace(/[^\w\.-]/g, "_")}`;
+
           const { data: upload, error: uploadError } = await supabase
             .from("uploads")
             .insert({
               project_id: projectId,
               owner_id: user.id,
-              kind: "output", // Using 'output' so it shows in Creations/Tests later
+              kind: "output",
               bucket: "outputs",
-              path: `${user.id}/tests/${Date.now()}-${image.filename.replace(/[^\w\.-]/g, "_")}`,
+              path: path,
               original_filename: image.filename,
               mime_type: image.file.type,
               size_bytes: image.file.size,
@@ -542,31 +620,75 @@ export function TestsTab({ projectId }: TestsTabProps) {
 
           if (uploadError) throw uploadError;
 
-          const { error: storageError } = await supabase.storage
-            .from("outputs")
-            .upload(upload.path, image.file, {
-              contentType: image.file.type,
-            });
-
-          if (storageError) throw storageError;
+          // Use uploadFile helper which handles signed URLs properly
+          await uploadFile("outputs", path, image.file);
 
           uploadIds.push(upload.id);
+          finalImages.push({
+            ...image,
+            id: upload.id,
+            isReused: true,
+            file: undefined
+          });
+          setIsUploading(false);
+        }
+      }
+
+      // 2) Handle external reference uploads
+      for (const image of referenceImages) {
+        if (image.isReused) {
+          referenceUploadIds.push(image.id);
+          finalRefs.push(image);
+        } else {
+          if (!image.file) continue;
+
+          setIsUploading(true);
+          const path = `${user.id}/design_refs/${Date.now()}-${image.filename.replace(/[^\w\.-]/g, "_")}`;
+
+          const { data: upload, error: uploadError } = await supabase
+            .from("uploads")
+            .insert({
+              project_id: projectId,
+              owner_id: user.id,
+              kind: "design_ref",
+              bucket: "design_refs",
+              path: path,
+              original_filename: image.filename,
+              mime_type: image.file.type,
+              size_bytes: image.file.size,
+            })
+            .select()
+            .single();
+
+          if (uploadError) throw uploadError;
+
+          // Use uploadFile helper
+          await uploadFile("design_refs", path, image.file);
+
+          referenceUploadIds.push(upload.id);
+          finalRefs.push({
+            ...image,
+            id: upload.id,
+            isReused: true,
+            file: undefined
+          });
           setIsUploading(false);
         }
       }
 
       if (uploadIds.length === 0) {
-        throw new Error("No valid images were uploaded");
+        throw new Error("No valid test images were uploaded");
       }
 
-      // 2) Create a single test job with all references
+      // 3) Create ONE job with ALL uploaded images as references
+      // This sends all images together to Nano Banana in a single request
       const { data: job, error: jobError } = await supabase
         .from("image_edit_jobs")
         .insert({
           project_id: projectId,
           owner_id: user.id,
-          source_upload_id: uploadIds[0], // First image acts as primary source
-          reference_upload_ids: uploadIds, // All images stored as references
+          source_upload_id: uploadIds[0], // First uploaded image as primary source
+          reference_upload_ids: [...uploadIds, ...referenceUploadIds], // ALL images
           change_description: changeRequest.trim(),
           aspect_ratio: selectedRatio,
           output_quality: selectedQuality,
@@ -575,28 +697,39 @@ export function TestsTab({ projectId }: TestsTabProps) {
         .select()
         .single();
 
-      if (jobError) throw jobError;
+      if (jobError) {
+        console.error(`[Tests] Failed to create job:`, jobError);
+        throw jobError;
+      }
 
-      // Auto-select the newly created job for immediate comparison/log view
       setSelectedJobId(job.id);
 
-      // 3) Start the job via edge function
+      // Start the job via edge function
+      const { data: { session } } = await supabase.auth.getSession();
       const { error: startError } = await supabase.functions.invoke("start-image-edit-job", {
         body: { job_id: job.id },
+        headers: { Authorization: `Bearer ${session?.access_token}` }
       });
 
       if (startError) {
-        console.error("[Tests] Failed to start job:", startError);
+        console.error(`[Tests] Failed to start job:`, startError);
+        await supabase.from("image_edit_jobs").update({
+          status: "failed",
+          last_error: "Failed to trigger backend processing"
+        }).eq("id", job.id);
+        throw startError;
       }
 
       toast({
-        title: "Test job created",
-        description: `Images: ${uploadIds.length}, Ratio: ${selectedRatio}, Quality: ${selectedQuality.toUpperCase()}`
+        title: "Test job started",
+        description: `Processing ${uploadIds.length} image${uploadIds.length > 1 ? 's' : ''} together${referenceUploadIds.length > 0 ? ` with ${referenceUploadIds.length} reference${referenceUploadIds.length > 1 ? 's' : ''}` : ''}`
       });
 
-      // Clear form
-      setUploadedImages([]);
-      setChangeRequest("");
+      // Update state with finalized images (converted to reused mode)
+      // and keep them in the state as requested by the user
+      setUploadedImages(finalImages);
+      setReferenceImages(finalRefs);
+      // We also keep the changeRequest text for easier iterative editing
 
       // Refresh jobs list
       refetch();
@@ -612,17 +745,54 @@ export function TestsTab({ projectId }: TestsTabProps) {
       setIsSubmitting(false);
       setIsUploading(false);
     }
-  }, [
-    user,
-    projectId,
-    uploadedImages,
-    changeRequest,
-    selectedRatio,
-    selectedQuality,
-    refetch,
-    toast,
-    isSubmitting
-  ]);
+  }, [projectId, user, uploadedImages, referenceImages, changeRequest, selectedRatio, selectedQuality, isSubmitting, toast, uploadFile, refetch]);
+
+  // Handle job cancellation
+  const handleCancelJob = useCallback(async (jobId: string) => {
+    try {
+      const { error } = await supabase
+        .from("image_edit_jobs")
+        .update({
+          status: "failed",
+          last_error: "Cancelled by user",
+          progress_message: "Job cancelled"
+        })
+        .eq("id", jobId);
+
+      if (error) throw error;
+
+      toast({ title: "Job cancelled" });
+      queryClient.invalidateQueries({ queryKey: ["test-jobs", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["image_edit_jobs"] });
+    } catch (e) {
+      console.error("Failed to cancel job:", e);
+      toast({ title: "Failed to cancel job", variant: "destructive" });
+    }
+  }, [projectId, queryClient, toast]);
+
+  const handleCancelAll = useCallback(async () => {
+    try {
+      const runningJobs = jobs.filter(j => j.status === "running" || j.status === "queued");
+      if (runningJobs.length === 0) return;
+
+      const { error } = await supabase
+        .from("image_edit_jobs")
+        .update({
+          status: "failed",
+          last_error: "Cancelled by user",
+          progress_message: "Job cancelled"
+        })
+        .in("id", runningJobs.map(j => j.id));
+
+      if (error) throw error;
+
+      toast({ title: `Cancelled ${runningJobs.length} jobs` });
+      queryClient.invalidateQueries({ queryKey: ["test-jobs", projectId] });
+    } catch (e) {
+      console.error("Failed to cancel all jobs:", e);
+      toast({ title: "Failed to cancel jobs", variant: "destructive" });
+    }
+  }, [jobs, projectId, queryClient, toast]);
 
   return (
     <div className="space-y-6">
@@ -657,7 +827,7 @@ export function TestsTab({ projectId }: TestsTabProps) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* File input */}
+              {/* File input for test images */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -666,8 +836,17 @@ export function TestsTab({ projectId }: TestsTabProps) {
                 className="hidden"
                 onChange={handleFileSelect}
               />
+              {/* File input for reference images */}
+              <input
+                ref={refFileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleRefFileSelect}
+              />
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Button
                   variant="outline"
                   className="h-24 border-dashed"
@@ -676,8 +855,22 @@ export function TestsTab({ projectId }: TestsTabProps) {
                 >
                   <div className="flex flex-col items-center gap-2">
                     <Upload className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">
-                      Select images
+                    <span className="text-[10px] text-muted-foreground whitespace-normal">
+                      Select images to test
+                    </span>
+                  </div>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  className="h-24 border-dashed border-primary/30 bg-primary/5 hover:bg-primary/10"
+                  onClick={() => refFileInputRef.current?.click()}
+                  disabled={isSubmitting}
+                >
+                  <div className="flex flex-col items-center gap-2">
+                    <Paperclip className="h-5 w-5 text-primary/60" />
+                    <span className="text-[10px] text-muted-foreground whitespace-normal">
+                      Add external reference
                     </span>
                   </div>
                 </Button>
@@ -691,7 +884,7 @@ export function TestsTab({ projectId }: TestsTabProps) {
                     >
                       <div className="flex flex-col items-center gap-2">
                         <Image className="h-5 w-5 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-[10px] text-muted-foreground whitespace-normal">
                           Reuse previous
                         </span>
                       </div>
@@ -740,29 +933,68 @@ export function TestsTab({ projectId }: TestsTabProps) {
               </div>
 
               {/* Uploaded images grid */}
-              {uploadedImages.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {uploadedImages.map((img) => (
-                    <div key={img.id} className="relative group">
-                      <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted border">
-                        {img.previewUrl ? (
-                          <img src={img.previewUrl} alt={img.filename} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Image className="h-4 w-4 text-muted-foreground" />
+              {(uploadedImages.length > 0 || referenceImages.length > 0) && (
+                <div className="space-y-4">
+                  {uploadedImages.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Images to Test ({uploadedImages.length})</p>
+                      <div className="flex flex-wrap gap-2">
+                        {uploadedImages.map((img) => (
+                          <div key={img.id} className="relative group">
+                            <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted border">
+                              {img.previewUrl ? (
+                                <img src={img.previewUrl} alt={img.filename} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Image className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              variant="destructive"
+                              size="icon"
+                              className="absolute -top-1 -right-1 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => handleRemoveImage(img.id)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
                           </div>
-                        )}
+                        ))}
                       </div>
-                      <Button
-                        variant="destructive"
-                        size="icon"
-                        className="absolute -top-1 -right-1 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => handleRemoveImage(img.id)}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
                     </div>
-                  ))}
+                  )}
+
+                  {referenceImages.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-medium text-primary uppercase tracking-wider flex items-center gap-1">
+                        <Paperclip className="h-3 w-3" />
+                        External References ({referenceImages.length})
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {referenceImages.map((img) => (
+                          <div key={img.id} className="relative group">
+                            <div className="w-20 h-20 rounded-lg overflow-hidden bg-primary/5 border border-primary/20">
+                              {img.previewUrl ? (
+                                <img src={img.previewUrl} alt={img.filename} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Paperclip className="h-4 w-4 text-primary/40" />
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              variant="destructive"
+                              size="icon"
+                              className="absolute -top-1 -right-1 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => handleRemoveReferenceImage(img.id)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -857,11 +1089,21 @@ export function TestsTab({ projectId }: TestsTabProps) {
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <Image className="h-5 w-5" />
                   Test Jobs
-                </span>
-                <Badge variant="secondary">{jobs.length}</Badge>
+                  <Badge variant="secondary" className="ml-1">{jobs.length}</Badge>
+                </div>
+                {jobs.some(j => j.status === "running" || j.status === "queued") && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 text-[10px] font-bold"
+                    onClick={handleCancelAll}
+                  >
+                    CANCEL ALL
+                  </Button>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -887,6 +1129,7 @@ export function TestsTab({ projectId }: TestsTabProps) {
                         isSelected={selectedJobId === job.id}
                         onSelect={() => setSelectedJobId(job.id)}
                         onViewOutput={(url) => setPreviewUrl(url)}
+                        onCancel={() => handleCancelJob(job.id)}
                       />
                     ))}
                   </div>
@@ -928,7 +1171,11 @@ function RecentUploadThumbnail({ upload }: { upload: any }) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    getSignedViewUrl(upload.bucket, upload.path).then(r => {
+    getSignedViewUrl(upload.bucket, upload.path, 3600, {
+      width: 200,
+      height: 200,
+      resize: 'cover'
+    }).then(r => {
       if (r.signedUrl) setUrl(r.signedUrl);
     });
   }, [upload.id]);

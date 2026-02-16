@@ -54,3 +54,5 @@ supabase/.branches/**
 # Additional local-only patterns
 *_LOCAL.md
 *_DEBUG.sql
+diagnostics/
+.tmp/

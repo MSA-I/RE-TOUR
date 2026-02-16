@@ -1,6 +1,10 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  encode as encodeBase64,
+  decode as decodeBase64
+} from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,32 +14,74 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// AI Models configuration (inlined to avoid shared dependency)
+const AI_MODELS = {
+  IMAGE_GENERATION: {
+    model: "gemini-3-pro-image-preview",
+    provider: "google",
+  },
+} as const;
+
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
+function getGeminiModelUrl(modelName: string, apiKey: string): string {
+  return `${GEMINI_API_BASE}/${modelName}:generateContent?key=${apiKey}`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+    console.log("[start-image-edit-job] Starting request, anon key available:", !!supabaseAnonKey);
+
+    if (!supabaseAnonKey) {
+      console.error("[start-image-edit-job] SUPABASE_ANON_KEY not configured");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error - SUPABASE_ANON_KEY missing" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Auth check
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    console.log("[start-image-edit-job] Auth header present:", !!authHeader);
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      console.error("[start-image-edit-job] Missing or invalid authorization header");
       return new Response(
         JSON.stringify({ error: "Missing authorization header" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const supabaseUser = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const { data: { user }, error: authError } = await supabaseUser.auth.getUser(
-      authHeader.replace("Bearer ", "")
-    );
+    console.log("[start-image-edit-job] Creating supabase client for auth...");
+    const supabaseAnon = createClient(SUPABASE_URL, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
 
-    if (authError || !user) {
+    console.log("[start-image-edit-job] Calling getUser()...");
+    const { data: userData, error: authError } = await supabaseAnon.auth.getUser();
+
+    if (authError || !userData?.user) {
+      console.error("[start-image-edit-job] Auth verification failed:", {
+        hasError: !!authError,
+        errorMessage: authError?.message,
+        errorStatus: authError?.status,
+        hasUserData: !!userData,
+        hasUser: !!userData?.user
+      });
       return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
+        JSON.stringify({ error: "Unauthorized", details: authError?.message }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    console.log("[start-image-edit-job] Auth successful, user ID:", userData.user.id);
+    const user = { id: userData.user.id };
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const { job_id } = await req.json();
@@ -131,23 +177,42 @@ serve(async (req) => {
     const imageParts = [];
     for (const upload of (refUploads || [sourceUpload])) {
       try {
-        const { data: signedData } = await supabase.storage
+        // Apply downscaling transformation when fetching images to stay within memory and API limits
+        // 1600px is enough for Gemini to understand style and detail
+        let signedData = await supabase.storage
           .from(upload.bucket)
-          .createSignedUrl(upload.path, 3600);
+          .createSignedUrl(upload.path, 3600, {
+            transform: {
+              width: 1600,
+              height: 1600,
+              resize: 'contain',
+              quality: 80
+            }
+          });
 
-        if (signedData?.signedUrl) {
-          const imgResp = await fetch(signedData.signedUrl);
+        // Fallback to original if transform fails
+        if (signedData.error || !signedData.data?.signedUrl) {
+          console.warn(`[start-image-edit-job] Transform failed, falling back to original`);
+          signedData = await supabase.storage
+            .from(upload.bucket)
+            .createSignedUrl(upload.path, 3600);
+        }
+
+        if (signedData.data?.signedUrl) {
+          const imgResp = await fetch(signedData.data.signedUrl);
           const imgBuf = await imgResp.arrayBuffer();
-          const imgBytes = new Uint8Array(imgBuf);
-          let binStr = "";
-          for (let i = 0; i < imgBytes.length; i++) {
-            binStr += String.fromCharCode(imgBytes[i]);
+
+          // Check size to prevent OOM
+          const sizeMB = imgBuf.byteLength / 1024 / 1024;
+          if (sizeMB > 5) {
+            console.warn(`[start-image-edit-job] Image too large (${sizeMB.toFixed(2)}MB), skipping`);
+            continue;
           }
 
           imageParts.push({
             inlineData: {
               mimeType: upload.mime_type || "image/png",
-              data: btoa(binStr)
+              data: encodeBase64(imgBuf)
             }
           });
         }
@@ -190,7 +255,7 @@ serve(async (req) => {
     console.log(`[start-image-edit-job] Quality config: imageSize=${imageSize}, aspectRatio=${aspectRatio}`);
 
     const aiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${nanoBananaKey}`,
+      getGeminiModelUrl(AI_MODELS.IMAGE_GENERATION.model, nanoBananaKey),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -220,20 +285,22 @@ Important: Apply the changes precisely as described. Maintain image quality and 
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
-      console.error("AI API error:", aiResponse.status, errorText);
+      console.error("[start-image-edit-job] AI API error:", aiResponse.status, errorText);
       await logEvent("error", `AI processing failed: ${aiResponse.status}`, 0);
       await supabase.from("image_edit_jobs").update({
         status: "failed",
-        last_error: `AI processing failed: ${aiResponse.status}`
+        last_error: `AI processing failed: ${aiResponse.status} - ${errorText.substring(0, 200)}`
       }).eq("id", job_id);
       return new Response(
-        JSON.stringify({ error: "AI processing failed" }),
+        JSON.stringify({ error: "AI processing failed", details: errorText.substring(0, 200) }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    // Use a more memory-efficient way to get JSON if possible, but for Deno fetch, .json() is standard.
+    // The main OOM trigger was likely logging JSON.stringify of the entire data.
     const aiData = await aiResponse.json();
-    console.log("[start-image-edit-job] AI response structure:", JSON.stringify(aiData).substring(0, 500));
+    console.log("[start-image-edit-job] AI response received successfully. Candidate count:", aiData.candidates?.length || 0);
 
     // Extract image from Gemini response - look for inlineData with image (camelCase from API)
     let generatedImageBase64: string | null = null;
@@ -244,6 +311,7 @@ Important: Apply the changes precisely as described. Maintain image quality and 
         // API returns camelCase: inlineData, mimeType
         if (part.inlineData?.mimeType?.startsWith("image/")) {
           generatedImageBase64 = part.inlineData.data;
+          console.log("[start-image-edit-job] Found image in response part. MimeType:", part.inlineData.mimeType);
           break;
         }
       }
@@ -251,11 +319,11 @@ Important: Apply the changes precisely as described. Maintain image quality and 
     }
 
     if (!generatedImageBase64) {
-      console.error("[start-image-edit-job] No image in response. Full response:", JSON.stringify(aiData).substring(0, 1000));
+      console.error("[start-image-edit-job] No image in response candidates.");
       await logEvent("error", "No image generated by AI", 0);
       await supabase.from("image_edit_jobs").update({
         status: "failed",
-        last_error: "No image generated by AI"
+        last_error: "No image generated by AI - check Gemini logs"
       }).eq("id", job_id);
       return new Response(
         JSON.stringify({ error: "No image generated" }),
@@ -265,8 +333,10 @@ Important: Apply the changes precisely as described. Maintain image quality and 
 
     await logEvent("info", "Saving output image...", 85);
 
-    // Decode base64 to upload
-    const imageData = Uint8Array.from(atob(generatedImageBase64), c => c.charCodeAt(0));
+    // Decode base64 to upload - using standard library for efficiency
+    const imageData = decodeBase64(generatedImageBase64);
+    console.log("[start-image-edit-job] Image decoded successfully. Byte length:", imageData.length);
+    await logEvent("info", `Image decoded (${(imageData.length / 1024 / 1024).toFixed(2)}MB). Uploading...`, 90);
 
     // Upload to outputs bucket
     const outputPath = `${user.id}/${job.project_id}/edit-${job_id}-${Date.now()}.png`;

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { transformStorageUrl } from "../_shared/url-transform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,8 +15,21 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+    console.log("[create-signed-view-url] Starting request, anon key available:", !!supabaseAnonKey);
+
+    if (!supabaseAnonKey) {
+      console.error("[create-signed-view-url] SUPABASE_ANON_KEY not configured");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error - SUPABASE_ANON_KEY missing" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const authHeader = req.headers.get("Authorization");
+    console.log("[create-signed-view-url] Auth header present:", !!authHeader);
+
     if (!authHeader?.startsWith("Bearer ")) {
       console.error("[create-signed-view-url] Missing or invalid authorization header");
       return new Response(
@@ -24,28 +38,38 @@ serve(async (req) => {
       );
     }
 
-    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
-    const token = authHeader.replace("Bearer ", "");
-    
-    // Use getClaims for JWT validation (faster than getUser)
-    const { data: claimsData, error: claimsError } = await supabaseClient.auth.getClaims(token);
-    
-    if (claimsError || !claimsData?.claims) {
-      console.error("[create-signed-view-url] Auth error:", claimsError?.message || "No claims");
+    console.log("[create-signed-view-url] Creating supabase client for auth...");
+    const supabaseAnon = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    console.log("[create-signed-view-url] Calling getUser()...");
+    const { data: userData, error: authError } = await supabaseAnon.auth.getUser();
+
+    if (authError || !userData?.user) {
+      console.error("[create-signed-view-url] Auth verification failed:", {
+        hasError: !!authError,
+        errorMessage: authError?.message,
+        errorStatus: authError?.status,
+        hasUserData: !!userData,
+        hasUser: !!userData?.user
+      });
       return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
+        JSON.stringify({ error: "Unauthorized", details: authError?.message }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
-    const user = { id: claimsData.claims.sub as string };
 
-    const { bucket, path, expiresIn = 3600, uploadId } = await req.json();
-    
+    console.log("[create-signed-view-url] Auth successful, user ID:", userData.user.id);
+    const user = { id: userData.user.id };
+    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { bucket, path, expiresIn = 3600, uploadId, transform } = await req.json();
+
     // Support two modes: 
     // 1. uploadId - look up bucket and path from uploads table
     // 2. bucket + path - direct lookup (legacy)
-    
+
     let resolvedBucket: string;
     let resolvedPath: string;
     let upload: { owner_id: string; bucket: string; path: string } | null = null;
@@ -116,11 +140,30 @@ serve(async (req) => {
       throw new Error("Missing uploadId or bucket+path");
     }
 
-    console.log(`Creating signed view URL for ${resolvedBucket}/${resolvedPath}`);
+    console.log(`Creating signed view URL for ${resolvedBucket}/${resolvedPath}${transform ? ' with transform' : ''}`);
 
-    const { data, error } = await supabaseClient.storage
+    let signedUrlResult = await supabaseClient.storage
       .from(resolvedBucket)
-      .createSignedUrl(resolvedPath, expiresIn);
+      .createSignedUrl(resolvedPath, expiresIn, { transform });
+
+    // If transform fails (likely free tier), fall back to original
+    if (transform && signedUrlResult.error) {
+      const errorMsg = signedUrlResult.error.message || "";
+      const isTransformError =
+        errorMsg.includes("transform") ||
+        errorMsg.includes("not available") ||
+        errorMsg.includes("upgrade") ||
+        (signedUrlResult.error as any).statusCode === "402";
+
+      if (isTransformError) {
+        console.warn("[create-signed-view-url] Transform not available, falling back to original");
+        signedUrlResult = await supabaseClient.storage
+          .from(resolvedBucket)
+          .createSignedUrl(resolvedPath, expiresIn); // No transform
+      }
+    }
+
+    const { data, error } = signedUrlResult;
 
     if (error) {
       // Handle "Object not found" gracefully - return null signedUrl instead of throwing
@@ -138,7 +181,7 @@ serve(async (req) => {
     console.log("Signed view URL created successfully");
 
     return new Response(
-      JSON.stringify({ signedUrl: data.signedUrl }),
+      JSON.stringify({ signedUrl: transformStorageUrl(data.signedUrl, supabaseUrl) }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

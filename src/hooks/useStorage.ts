@@ -7,6 +7,20 @@ type SignedUrlResult =
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Client-side URL sanitization fallback for local development
+ * Transforms kong:8000 → 127.0.0.1:54321 if edge function transformation failed
+ * This is a safety net - primary fix is in edge functions
+ */
+function sanitizeLocalStorageUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.includes('kong:8000')) {
+    console.warn('[useStorage] Client-side transformation (edge function should handle this)');
+    return url.replace(/http:\/\/kong:8000/g, 'http://127.0.0.1:54321');
+  }
+  return url;
+}
+
 // Invoke with retry - defined outside hook for stability
 async function invokeWithRetry<T>(
   fn: string,
@@ -75,7 +89,7 @@ export function useStorage() {
     if (accessTokenRef.current && tokenExpiryRef.current > now + 60000) {
       return accessTokenRef.current;
     }
-    
+
     const {
       data: { session },
       error: sessionError,
@@ -83,7 +97,7 @@ export function useStorage() {
     if (sessionError || !session) {
       throw new Error("Not authenticated. Please log in again.");
     }
-    
+
     accessTokenRef.current = session.access_token;
     // Token expiry from session (default to 1 hour if not available)
     tokenExpiryRef.current = session.expires_at ? session.expires_at * 1000 : now + 3600000;
@@ -109,33 +123,47 @@ export function useStorage() {
       throw new Error((data as any).error);
     }
 
-    return data;
+    return {
+      ...data,
+      signedUrl: sanitizeLocalStorageUrl(data?.signedUrl)
+    };
   }, [getAccessToken]);
 
   // Get signed view URL - supports both uploadId (preferred) and bucket+path (legacy)
   const getSignedViewUrl = useCallback(async (
-    bucketOrUploadId: string, 
-    path?: string, 
-    expiresIn = 3600
+    bucketOrUploadId: string,
+    path?: string,
+    expiresIn = 3600,
+    transform?: {
+      width?: number;
+      height?: number;
+      resize?: 'cover' | 'contain' | 'fill';
+      quality?: number;
+      format?: 'origin' | 'webp';
+    }
   ): Promise<SignedUrlResult> => {
     const accessToken = await getAccessToken();
 
     const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    
+
     // Detect uploadId mode:
     // 1. Single UUID arg (no path)
     // 2. OR path arg is actually a UUID (common mistake: passing uploadId as path)
     const firstArgIsUuid = UUID_REGEX.test(bucketOrUploadId);
     const secondArgIsUuid = path && UUID_REGEX.test(path);
-    
+
     // If second arg is a UUID, treat it as the uploadId (fix common misuse pattern)
     // If first arg is UUID and no second arg, use first arg as uploadId
     const isUploadIdMode = (!path && firstArgIsUuid) || secondArgIsUuid;
     const resolvedUploadId = secondArgIsUuid ? path : (firstArgIsUuid && !path ? bucketOrUploadId : null);
-    
-    const body = isUploadIdMode && resolvedUploadId
+
+    const body: any = isUploadIdMode && resolvedUploadId
       ? { uploadId: resolvedUploadId, expiresIn }
       : { bucket: bucketOrUploadId, path, expiresIn };
+
+    if (transform) {
+      body.transform = transform;
+    }
 
     const { data, error } = await invokeWithRetry<any>(
       "create-signed-view-url",
@@ -148,6 +176,11 @@ export function useStorage() {
     if (error) {
       const status = (error as any)?.context?.status ?? (error as any)?.status;
       const msg = String((error as any)?.message ?? "");
+
+      // Log transform failures (free tier limitation)
+      if (transform && (msg.includes("transform") || msg.includes("not available"))) {
+        console.warn("[useStorage] Transform API not available (free tier?), falling back");
+      }
 
       // Transient boot errors: treat as retryable and return null (UI can show placeholder)
       if (status === 503 || msg.includes("BOOT_ERROR") || msg.includes("failed to start")) {
@@ -174,23 +207,23 @@ export function useStorage() {
       return { signedUrl: null, error_message: "No signed URL returned" };
     }
 
-    return { signedUrl: (data as any).signedUrl };
+    return { signedUrl: sanitizeLocalStorageUrl((data as any).signedUrl) };
   }, [getAccessToken]);
 
   const getSignedDownloadUrl = useCallback(async (bucketOrUploadId: string, path: string, filename?: string, expiresIn = 3600) => {
     const accessToken = await getAccessToken();
 
     const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    
+
     // Detect uploadId mode same as getSignedViewUrl
     const firstArgIsUuid = UUID_REGEX.test(bucketOrUploadId);
     const secondArgIsUuid = path && UUID_REGEX.test(path);
-    
+
     const isUploadIdMode = (!path && firstArgIsUuid) || secondArgIsUuid || bucketOrUploadId === "lookup";
-    const resolvedUploadId = bucketOrUploadId === "lookup" 
-      ? path 
+    const resolvedUploadId = bucketOrUploadId === "lookup"
+      ? path
       : (secondArgIsUuid ? path : (firstArgIsUuid && !path ? bucketOrUploadId : null));
-    
+
     const body = isUploadIdMode && resolvedUploadId
       ? { uploadId: resolvedUploadId, expiresIn, filename }
       : { bucket: bucketOrUploadId, path, expiresIn, filename };
@@ -204,7 +237,10 @@ export function useStorage() {
 
     if (error) throw error;
     if ((data as any)?.error) throw new Error((data as any).error);
-    return data;
+    return {
+      ...data,
+      signedUrl: sanitizeLocalStorageUrl((data as any)?.signedUrl)
+    };
   }, [getAccessToken]);
 
   const uploadFile = useCallback(async (bucket: string, path: string, file: File) => {

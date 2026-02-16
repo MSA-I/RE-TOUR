@@ -51,7 +51,6 @@ import { SpaceGraphSummary } from "@/components/whole-apartment/SpaceGraphSummar
 import { PipelineDebugPanel } from "@/components/whole-apartment/PipelineDebugPanel";
 import { Step7PreRunSettings } from "@/components/whole-apartment/Step7PreRunSettings";
 import { supabase } from "@/integrations/supabase/client";
-import { useCameraMarkers } from "@/hooks/useCameraMarkers";
 import { useSpatialMap } from "@/hooks/useSpatialMap";
 import { useAvailableReferenceImages } from "@/hooks/useAvailableReferenceImages";
 import { FloorPlanPipelineTerminal } from "@/components/FloorPlanPipelineTerminal";
@@ -2196,14 +2195,6 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
     updateSpaceReferences,
   } = useWholeApartmentPipeline(pipeline.id);
 
-  // Camera markers hook for Step 3: Camera Planning
-  const {
-    confirmCameraPlan,
-    markers: cameraMarkers,
-    isLoading: markersLoading,
-    isConfirming: isConfirmingCameraPlanHook
-  } = useCameraMarkers(pipeline.id);
-
   // Available reference images for per-space selection (Step 4+ approved outputs)
   const { data: availableReferenceImages = [] } = useAvailableReferenceImages(pipeline.id);
 
@@ -3594,11 +3585,8 @@ export const WholeApartmentPipelineCard = memo(function WholeApartmentPipelineCa
                       isRenderingSpace={renderingSpaceId === space.id}
                       isUpdatingRefs={updateSpaceReferences.isPending}
                       hasMarker={
-                        markersLoading
-                          ? true // Don't block during loading
-                          : (cameraMarkers?.some(m => m.room_id === space.id) ??
-                            // Fallback: if render records exist, assume marker existed
-                            !!(space.renders?.find(r => r.kind === "A" || r.kind === "B")))
+                        // If render records exist, marker was created
+                        !!(space.renders?.find(r => r.kind === "A" || r.kind === "B"))
                       }
                     />
                   ))}

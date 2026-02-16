@@ -5,6 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:start": "bash scripts/dev-start.sh",
+    "dev:start:windows": "powershell -ExecutionPolicy Bypass -File scripts/dev-start.ps1",
+    "dev:stop": "bash scripts/dev-stop.sh",
+    "dev:stop:windows": "powershell -ExecutionPolicy Bypass -File scripts/dev-stop.ps1",
+    "dev:logs:functions": "tail -f logs/functions.log",
+    "dev:status": "supabase status",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
@@ -12,7 +18,13 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run tests/e2e",
+    "test:e2e:watch": "vitest tests/e2e",
+    "test:e2e:ui": "vitest --ui tests/e2e",
+    "test:e2e:core": "vitest run tests/e2e/core",
+    "test:e2e:workflows": "vitest run tests/e2e/workflows",
+    "test:regression": "vitest run tests/e2e/core/regression-400.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
