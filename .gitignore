@@ -1,6 +1,7 @@
 ﻿# Logs
 logs
 *.log
+*.pid
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -34,3 +35,22 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# ============================================
+# Local Supabase Sandbox (Development Only)
+# ============================================
+/local_supabase/
+
+# Supabase Local Artifacts
+supabase/.temp/
+supabase/.branches/
+supabase/.branches/**
+*.dump
+*.backup
+*.local.sql
+.env.local
+.env.*.local
+
+# Additional local-only patterns
+*_LOCAL.md
+*_DEBUG.sql
